@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 110">
+  <title>RepliCourt mark</title>
+  <circle cx="50" cy="6" r="4" fill="#2dd4bf"/>
+  <polygon points="14,32 86,32 50,14" fill="#0f6a6a"/>
+  <rect x="22" y="68" width="14" height="22" fill="#0f6a6a"/>
+  <rect x="43" y="52" width="14" height="38" fill="#0f6a6a"/>
+  <rect x="64" y="38" width="14" height="52" fill="#0f6a6a"/>
+  <rect x="14" y="90" width="72" height="5" rx="1" fill="#0f6a6a"/>
+</svg>
