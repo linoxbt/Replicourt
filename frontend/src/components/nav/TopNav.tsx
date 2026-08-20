@@ -39,13 +39,13 @@ export function TopNav() {
 
   return (
     <header
-      className="sticky top-0 z-30 border-b backdrop-blur"
+      className="sticky top-0 z-30 border-b backdrop-blur md:hidden"
       style={{
         borderColor: "var(--color-border-default)",
         background: "color-mix(in srgb, var(--color-canvas) 92%, transparent)",
       }}
     >
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
+      <div className="flex h-14 items-center gap-6 px-4">
         <NavLink to="/" className="flex shrink-0 items-center gap-2">
           <svg width="22" height="24" viewBox="0 0 100 110" aria-hidden>
             <circle cx="50" cy="6" r="4" fill="var(--color-accent-emphasis)" />
@@ -60,14 +60,7 @@ export function TopNav() {
           </span>
         </NavLink>
 
-        <nav className="hidden items-center gap-1 md:flex">
-          <NavLinks />
-        </nav>
-
         <div className="ml-auto flex items-center gap-2">
-          <div className="hidden sm:block">
-            <NetworkSwitcher />
-          </div>
           <NotificationsBell />
           <WalletConnectButton />
           <button
@@ -75,7 +68,7 @@ export function TopNav() {
             aria-label={mobileOpen ? "Close menu" : "Open menu"}
             aria-expanded={mobileOpen}
             onClick={() => setMobileOpen((v) => !v)}
-            className="flex h-8 w-8 items-center justify-center border md:hidden"
+            className="flex h-8 w-8 items-center justify-center border"
             style={{ borderColor: "var(--color-border-default)" }}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden fill="none">
@@ -101,13 +94,13 @@ export function TopNav() {
 
       {mobileOpen && (
         <div
-          className="border-t px-4 py-3 md:hidden"
+          className="border-t px-4 py-3"
           style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
         >
           <div className="flex flex-col gap-1">
             <NavLinks onNavigate={() => setMobileOpen(false)} className="w-full" />
           </div>
-          <div className="mt-3 sm:hidden">
+          <div className="mt-3">
             <NetworkSwitcher />
           </div>
         </div>
