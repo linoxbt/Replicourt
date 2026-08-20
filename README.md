@@ -195,12 +195,18 @@ Wikipedia page; the validator correctly refused to trust the claim and returned
 supported by this source" — proving the contract weighs the stated argument
 against the real fetched content rather than taking it at face value.
 
-**Testnet Asimov**: `0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5`, deployed from a
-fresh `replicourt-asimov-deployer` account funded via testnet-faucet.genlayer.foundation.
-`post_claim` and `challenge` were both submitted and reached real multi-validator
-consensus (`FINISHED_WITH_RETURN`, a real LLM-derived rationale about publication
-bias computed on-chain) — confirmed via `genlayer trace <txId>`, since real-testnet
-transaction receipts don't expose the same nested `data.*` shape studionet's do.
+**Testnet Asimov**: `0xB0762453FB43D6B1e7AD442D5F2175aB8d887777`, deployed from a
+fresh `replicourt-asimov-deployer-2` account funded via testnet-faucet.genlayer.foundation
+(the original `replicourt-asimov-deployer`'s keystore password wasn't retained
+between sessions — its `0xb04b6f34…` address is now an orphaned, still-funded
+account with the old pre-`category` contract at `0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5`,
+no longer referenced by the frontend). `post_claim` and `challenge` were both
+submitted and reached real multi-validator consensus (`FINISHED_WITH_RETURN`, a
+real LLM-derived rationale about publication bias computed on-chain) — confirmed
+via `genlayer trace <txId>`, since real-testnet transaction receipts don't expose
+the same nested `data.*` shape studionet's do. The `category` field was
+separately live-verified against this same deployment: posted a claim with
+`category="medicine"` and confirmed `get_claim` round-trips it correctly.
 
 One thing worth knowing if you deploy here yourself: **unlike studio.genlayer.com,
 real testnet transactions don't auto-finalize.** After consensus, a transaction sits
@@ -213,14 +219,6 @@ RepliCourt bug. The frontend now offers a manual **Finalize** button on
 `FinalizePanel.tsx`) — there's no server-side transaction index, so this only
 covers transactions submitted from the same browser; a real always-on keeper is
 still future work (see "Explicitly deferred").
-
-**Note:** testnet Asimov is still running the contract version from the run
-above (pre-`category` field) — its deployer keystore's password wasn't
-retained anywhere durable this session (by design — it's never written into
-the repo), so redeploying it requires either that password or funding a fresh
-account via the faucet again. `get_claim` reads on testnet Asimov simply won't
-have a `category` key until it's redeployed; the frontend treats a missing
-category as `"uncategorized"` rather than breaking.
 
 **Real protocol appeal is testnet-Asimov-only.** `genlayer-js`'s
 `appealTransaction`/`getMinAppealBond` need a chain preset with
@@ -434,8 +432,6 @@ see [Explicitly deferred](#explicitly-deferred-out-of-scope-for-this-hackathon-b
 - Cross-contract composition — single contract only.
 - Formal economic modeling of the 80/20 slash ratio — it's a documented,
   tunable constant, not a derived model.
-- Redeploying testnet Asimov with the `category` field — blocked on its
-  deployer keystore's password (see "Live deployment").
 
 ## License
 

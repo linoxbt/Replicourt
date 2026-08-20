@@ -46,7 +46,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     id: "testnetAsimov",
     label: "Testnet Asimov",
     glChain: glChains.testnetAsimov,
-    contractAddress: "0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5",
+    contractAddress: "0xB0762453FB43D6B1e7AD442D5F2175aB8d887777",
     explorerTxUrl: (hash) => `https://explorer-asimov.genlayer.com/tx/${hash}`,
     faucetUrl: "https://testnet-faucet.genlayer.foundation",
     supportsAppeal: true,
