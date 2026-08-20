@@ -33,7 +33,13 @@ export function ClaimCard({
       className="block border p-4 transition-colors hover:border-[var(--color-accent-muted)]"
       style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-medium tracking-wide uppercase" style={{ color: "var(--color-accent-fg)" }}>
+          {claim.category || "uncategorized"}
+        </span>
+      </div>
+
+      <div className="mt-1 flex items-start justify-between gap-3">
         <p className="line-clamp-2 text-sm leading-snug font-medium">{claim.description}</p>
         <ConfidenceGauge bps={claim.confidence_bps} />
       </div>

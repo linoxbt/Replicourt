@@ -11,6 +11,10 @@ export interface NetworkConfig {
   explorerTxUrl: (hash: string) => string;
   faucetUrl?: string;
   gasless?: boolean;
+  // Real protocol-level appeal (genlayer-js's appealTransaction/getMinAppealBond)
+  // needs feeManagerContract/roundsStorageContract wired into the chain preset —
+  // studionet's simplified hosted preset doesn't have them, only testnetAsimov does.
+  supportsAppeal?: boolean;
 }
 
 // Reown's networks are viem-shaped Chain objects. genlayer-js's chain presets are
@@ -34,7 +38,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     id: "studionet",
     label: "Studionet",
     glChain: glChains.studionet,
-    contractAddress: "0xbafe748FE66B7fB41046E81040195431439dE492",
+    contractAddress: "0x62bb3DF3DC9a0F176f601460509a1DAb4cC0fdB0",
     explorerTxUrl: (hash) => `https://genlayer-explorer.vercel.app/tx/${hash}`,
     gasless: true,
   },
@@ -45,6 +49,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     contractAddress: "0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5",
     explorerTxUrl: (hash) => `https://explorer-asimov.genlayer.com/tx/${hash}`,
     faucetUrl: "https://testnet-faucet.genlayer.foundation",
+    supportsAppeal: true,
   },
 };
 

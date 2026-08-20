@@ -8,11 +8,27 @@ export interface Claim {
   effect_size_bps: number;
   study_design: string;
   source_url: string;
+  category: string;
   stake: string;
   confidence_bps: number;
   status: "active" | "under_challenge" | "resolved";
   created_at: number;
 }
+
+// Free-text on the contract, but the frontend suggests these so the registry's
+// category filter has a stable, predictable set to group by.
+export const SUGGESTED_CATEGORIES = [
+  "health",
+  "psychology",
+  "nutrition",
+  "medicine",
+  "neuroscience",
+  "economics",
+  "social science",
+  "physics",
+  "biology",
+  "other",
+] as const;
 
 export interface EvidenceEvent {
   claim_id: string;
@@ -105,6 +121,7 @@ export async function postClaim(
     effectSizeBps: number;
     studyDesign: string;
     sourceUrl: string;
+    category: string;
     stakeGen: number;
   }
 ): Promise<`0x${string}`> {
@@ -112,7 +129,14 @@ export async function postClaim(
   const hash = await writeClient.writeContract({
     address: ctx.contractAddress,
     functionName: "post_claim",
-    args: [params.claimId, params.description, params.effectSizeBps, params.studyDesign, params.sourceUrl],
+    args: [
+      params.claimId,
+      params.description,
+      params.effectSizeBps,
+      params.studyDesign,
+      params.sourceUrl,
+      params.category,
+    ],
     value: genToWei(params.stakeGen),
   });
   await writeClient.waitForTransactionReceipt({ hash, status: TransactionStatus.ACCEPTED });
@@ -167,4 +191,24 @@ export async function escalate(
     retries: 60,
   });
   return hash;
+}
+
+// The protocol's own transaction-level appeal/finalize flow (as distinct from
+// escalate()'s contract-level approximation above) — real genlayer-js client
+// methods, not something this contract defines. Only usable on a tx hash this
+// browser has locally (see lib/txLog.ts) since there's no server-side tx index.
+
+export async function finalizeTx(ctx: ApiCtx, txId: `0x${string}`): Promise<`0x${string}`> {
+  const writeClient = requireWrite(ctx);
+  return writeClient.finalizeTransaction({ txId });
+}
+
+export async function getMinAppealBond(ctx: ApiCtx, txId: `0x${string}`): Promise<bigint> {
+  const writeClient = requireWrite(ctx);
+  return writeClient.getMinAppealBond({ txId });
+}
+
+export async function appealTx(ctx: ApiCtx, txId: `0x${string}`, valueWei: bigint): Promise<unknown> {
+  const writeClient = requireWrite(ctx);
+  return writeClient.appealTransaction({ txId, value: valueWei });
 }

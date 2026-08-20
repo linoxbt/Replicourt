@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Claim } from "../lib/contractApi";
+import { SUGGESTED_CATEGORIES } from "../lib/contractApi";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import { ClaimCard } from "../components/claims/ClaimCard";
+import { recordTx } from "../lib/txLog";
 
 function slugify(s: string): string {
   return (
@@ -21,11 +23,12 @@ const labelClass = "mb-1 block text-xs font-medium";
 
 export function PostClaim() {
   const navigate = useNavigate();
-  const { api, isConnected, connect } = useReplicourt();
+  const { api, isConnected, connect, networkId } = useReplicourt();
   const [description, setDescription] = useState("");
   const [effectSize, setEffectSize] = useState("");
   const [studyDesign, setStudyDesign] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [category, setCategory] = useState<string>(SUGGESTED_CATEGORIES[0]);
   const [stake, setStake] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +42,7 @@ export function PostClaim() {
     effect_size_bps: effectSizeBps,
     study_design: studyDesign || "Study design",
     source_url: sourceUrl,
+    category,
     stake: String(Math.round((Number(stake) || 0) * 1e18)),
     confidence_bps: 5000,
     status: "active",
@@ -51,14 +55,16 @@ export function PostClaim() {
     setError(null);
     try {
       const claimId = `${slugify(description)}-${Date.now().toString(36)}`;
-      await api.postClaim({
+      const hash = await api.postClaim({
         claimId,
         description,
         effectSizeBps,
         studyDesign,
         sourceUrl,
+        category,
         stakeGen: Number(stake) || 0,
       });
+      recordTx(networkId, `claim:${claimId}`, hash);
       navigate(`/claims/${claimId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to post claim");
@@ -141,6 +147,22 @@ export function PostClaim() {
               className={`${inputClass} font-mono`}
               style={inputStyle}
             />
+          </div>
+
+          <div>
+            <label className={labelClass}>Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={inputClass}
+              style={inputStyle}
+            >
+              {SUGGESTED_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
 
           {error && (

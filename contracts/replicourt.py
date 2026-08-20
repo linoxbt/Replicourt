@@ -73,6 +73,7 @@ class Claim:
     effect_size_bps: i32
     study_design: str
     source_url: str
+    category: str
     stake: u256
     confidence_bps: u32
     status: str          # "active" | "under_challenge" | "resolved"
@@ -301,7 +302,7 @@ with no support in the source text.
 
     @gl.public.write.payable
     def post_claim(self, claim_id: str, description: str, effect_size_bps: int,
-                    study_design: str, source_url: str) -> None:
+                    study_design: str, source_url: str, category: str) -> None:
         if claim_id in self.claims:
             raise gl.vm.UserError(f"{ERR_EXPECTED} claim id already exists")
         stake = gl.message.value
@@ -325,6 +326,7 @@ with no support in the source text.
             effect_size_bps=i32(effect_size_bps),
             study_design=study_design,
             source_url=source_url,
+            category=category[:60] if category else "uncategorized",
             stake=stake,
             confidence_bps=u32(INITIAL_CONFIDENCE_BPS),
             status="active",
@@ -456,6 +458,7 @@ with no support in the source text.
             "effect_size_bps": int(c.effect_size_bps),
             "study_design": c.study_design,
             "source_url": c.source_url,
+            "category": c.category,
             "stake": str(int(c.stake)),
             "confidence_bps": int(c.confidence_bps),
             "status": c.status,

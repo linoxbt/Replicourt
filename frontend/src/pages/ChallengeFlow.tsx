@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useReplicourt } from "../lib/ReplicourtProvider";
+import { recordTx } from "../lib/txLog";
 
 const inputClass =
   "w-full border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent-fg)]";
@@ -12,7 +13,7 @@ type Mode = "comparative" | "non_comparative";
 export function ChallengeFlow() {
   const { claimId } = useParams<{ claimId: string }>();
   const navigate = useNavigate();
-  const { api, isConnected, connect } = useReplicourt();
+  const { api, isConnected, connect, networkId } = useReplicourt();
   const [mode, setMode] = useState<Mode>("comparative");
   const [refs, setRefs] = useState<string[]>([""]);
   const [evidenceDescription, setEvidenceDescription] = useState("");
@@ -30,14 +31,16 @@ export function ChallengeFlow() {
     setBusy(true);
     setError(null);
     try {
-      await api.challenge({
-        challengeId: `${claimId}-ch-${Date.now().toString(36)}`,
+      const challengeId = `${claimId}-ch-${Date.now().toString(36)}`;
+      const hash = await api.challenge({
+        challengeId,
         claimId,
         counterRefs: refs.filter((r) => r.trim().length > 0),
         evidenceDescription,
         mode,
         stakeGen: Number(stake) || 0,
       });
+      recordTx(networkId, `challenge:${challengeId}`, hash);
       navigate(`/claims/${claimId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Challenge failed");

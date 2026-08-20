@@ -7,6 +7,7 @@ import { PostClaim } from "./pages/PostClaim";
 import { ClaimDetail } from "./pages/ClaimDetail";
 import { ChallengeFlow } from "./pages/ChallengeFlow";
 import { Escalation } from "./pages/Escalation";
+import { Leaderboard } from "./pages/Leaderboard";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/registry" element={<ClaimRegistry />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/claims/new" element={<PostClaim />} />
           <Route path="/claims/:claimId" element={<ClaimDetail />} />

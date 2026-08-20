@@ -2,11 +2,13 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { WalletConnectButton } from "../common/WalletConnectButton";
 import { NetworkSwitcher } from "../common/NetworkSwitcher";
+import { NotificationsBell } from "../common/NotificationsBell";
 
 const navLinkClass = "px-2.5 py-1.5 text-sm transition-colors";
 
 const links = [
   { to: "/registry", label: "Registry" },
+  { to: "/leaderboard", label: "Leaderboard" },
   { to: "/dashboard", label: "Dashboard" },
   { to: "/claims/new", label: "Post claim" },
 ];
@@ -66,6 +68,7 @@ export function TopNav() {
           <div className="hidden sm:block">
             <NetworkSwitcher />
           </div>
+          <NotificationsBell />
           <WalletConnectButton />
           <button
             type="button"

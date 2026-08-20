@@ -1,17 +1,16 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import './lib/appkit' // side-effect: initializes Reown AppKit before first render
 import './index.css'
-import { ReplicourtProvider } from './lib/ReplicourtProvider'
-import App from './App.tsx'
+
+const AppRoot = lazy(() => import('./AppRoot'))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <ReplicourtProvider>
-        <App />
-      </ReplicourtProvider>
+      <Suspense fallback={null}>
+        <AppRoot />
+      </Suspense>
     </BrowserRouter>
   </StrictMode>,
 )

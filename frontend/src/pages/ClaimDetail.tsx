@@ -6,11 +6,12 @@ import { ConfidenceChart } from "../components/claim-detail/ConfidenceChart";
 import { EvidenceTrail } from "../components/claim-detail/EvidenceTrail";
 import { ConfidenceGauge } from "../components/common/ConfidenceGauge";
 import { StakeBadge } from "../components/common/StakeBadge";
+import { FinalizePanel } from "../components/claim-detail/FinalizePanel";
 import { formatPercent, shortAddress } from "../lib/format";
 
 export function ClaimDetail() {
   const { claimId } = useParams<{ claimId: string }>();
-  const { api } = useReplicourt();
+  const { api, networkId } = useReplicourt();
   const [claim, setClaim] = useState<Claim | null>(null);
   const [trail, setTrail] = useState<EvidenceEvent[]>([]);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -59,7 +60,19 @@ export function ClaimDetail() {
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold leading-snug">{claim.description}</h1>
+          <div className="flex items-center gap-2">
+            <span
+              className="border-l-2 px-2 py-0.5 text-xs font-medium"
+              style={{
+                color: "var(--color-accent-fg)",
+                background: "var(--color-canvas-inset)",
+                borderLeftColor: "var(--color-accent-fg)",
+              }}
+            >
+              {claim.category || "uncategorized"}
+            </span>
+          </div>
+          <h1 className="mt-1.5 text-lg font-semibold leading-snug">{claim.description}</h1>
           <div
             className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs"
             style={{ color: "var(--color-fg-muted)" }}
@@ -108,12 +121,51 @@ export function ClaimDetail() {
         )}
       </div>
 
+      <FinalizePanel claimId={claim.id} challenges={challenges} />
+
+      <EmbedBadge claimId={claim.id} networkId={networkId} />
+
       <div className="mt-6">
         <h2 className="text-sm font-semibold">Evidence trail</h2>
         <div className="mt-3">
           <EvidenceTrail trail={trail} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmbedBadge({ claimId, networkId }: { claimId: string; networkId: string }) {
+  const [copied, setCopied] = useState(false);
+  const badgeUrl = `${window.location.origin}/.netlify/functions/badge?claim=${encodeURIComponent(claimId)}&network=${networkId}`;
+  const markdown = `[![RepliCourt confidence](${badgeUrl})](${window.location.origin}/claims/${claimId})`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(markdown).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  return (
+    <div className="mt-4 border p-3" style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}>
+      <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-fg-subtle)" }}>
+        Embed this claim's live confidence score
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <img src={badgeUrl} alt="RepliCourt confidence badge" height={20} />
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="border px-2.5 py-1 text-xs font-medium"
+          style={{ borderColor: "var(--color-border-default)" }}
+        >
+          {copied ? "Copied!" : "Copy markdown"}
+        </button>
+      </div>
+      <p className="mt-2 truncate font-mono text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+        {markdown}
+      </p>
     </div>
   );
 }

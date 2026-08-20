@@ -18,7 +18,7 @@ def test_post_claim_success(direct_vm, direct_deploy, direct_alice):
 
     direct_vm.sender = direct_alice
     direct_vm.value = 10 * 10**18
-    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
 
     claim = contract.get_claim("claim-1")
     assert claim["description"] == CLAIM_DESC
@@ -27,6 +27,7 @@ def test_post_claim_success(direct_vm, direct_deploy, direct_alice):
     assert claim["status"] == "active"
     assert claim["stake"] == str(10 * 10**18)
     assert claim["source_url"] == SOURCE_URL
+    assert claim["category"] == "health"
 
     all_claims = contract.get_all_claims()
     assert len(all_claims) == 1
@@ -39,10 +40,10 @@ def test_post_claim_duplicate_id_rejected(direct_vm, direct_deploy, direct_alice
 
     direct_vm.sender = direct_alice
     direct_vm.value = 5 * 10**18
-    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
 
     with direct_vm.expect_revert("already exists"):
-        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
 
 
 def test_post_claim_zero_stake_rejected(direct_vm, direct_deploy, direct_alice):
@@ -52,7 +53,7 @@ def test_post_claim_zero_stake_rejected(direct_vm, direct_deploy, direct_alice):
     direct_vm.sender = direct_alice
     direct_vm.value = 0
     with direct_vm.expect_revert("nonzero stake"):
-        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
 
 
 def test_post_claim_unreachable_source_rejected(direct_vm, direct_deploy, direct_alice):
@@ -62,4 +63,16 @@ def test_post_claim_unreachable_source_rejected(direct_vm, direct_deploy, direct
     direct_vm.sender = direct_alice
     direct_vm.value = 5 * 10**18
     with direct_vm.expect_revert("did not resolve"):
-        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+        contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
+
+
+def test_post_claim_blank_category_defaults(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy("contracts/replicourt.py")
+    _mock_reachable(direct_vm)
+
+    direct_vm.sender = direct_alice
+    direct_vm.value = 5 * 10**18
+    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "")
+
+    claim = contract.get_claim("claim-1")
+    assert claim["category"] == "uncategorized"

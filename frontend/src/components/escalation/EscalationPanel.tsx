@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { Challenge } from "../../lib/contractApi";
 import { useReplicourt } from "../../lib/ReplicourtProvider";
-import { formatPercent, shortAddress } from "../../lib/format";
+import { formatPercent, shortAddress, weiToGen } from "../../lib/format";
+import { getTx, recordTx } from "../../lib/txLog";
 
 const BASE_PANEL = 5;
 const ESCALATED_PANEL = 9;
@@ -23,13 +24,16 @@ function ValidatorDots({ count, active }: { count: number; active: boolean }) {
 }
 
 function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challenge; onEscalated: () => void }) {
-  const { api, isConnected, connect } = useReplicourt();
+  const { api, isConnected, connect, networkId, network } = useReplicourt();
   const [bond, setBond] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [appealBusy, setAppealBusy] = useState(false);
+  const [appealResult, setAppealResult] = useState<string | null>(null);
 
   const disagreement = Math.abs(challenge.delta_bps);
   const contested = disagreement < 1000; // small moves are the ones worth a second look
+  const originalTxId = getTx(networkId, `challenge:${challenge.id}`);
 
   async function handleEscalate() {
     if (!isConnected) {
@@ -39,12 +43,37 @@ function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challen
     setBusy(true);
     setError(null);
     try {
-      await api.escalate({ challengeId: challenge.id, bondGen: Number(bond) || 0 });
+      const hash = await api.escalate({ challengeId: challenge.id, bondGen: Number(bond) || 0 });
+      recordTx(networkId, `escalate:${challenge.id}`, hash);
       onEscalated();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Escalation failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // The real protocol appeal (as opposed to escalate()'s contract-level
+  // approximation above) — genlayer-js's appealTransaction against the
+  // original challenge's own tx hash. Only available when this browser
+  // submitted that challenge itself (see lib/txLog.ts).
+  async function handleRealAppeal() {
+    if (!isConnected) {
+      connect();
+      return;
+    }
+    if (!originalTxId) return;
+    setAppealBusy(true);
+    setError(null);
+    setAppealResult(null);
+    try {
+      const minBond = await api.getMinAppealBond(originalTxId);
+      await api.appealTx(originalTxId, minBond);
+      setAppealResult(`Appeal submitted on-chain (bond ${weiToGen(minBond)} GEN). Awaiting a new validator round.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "On-chain appeal failed");
+    } finally {
+      setAppealBusy(false);
     }
   }
 
@@ -100,6 +129,38 @@ function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challen
             {busy ? "Escalating…" : "Escalate"}
           </button>
         </div>
+      )}
+
+      {network.supportsAppeal && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2" style={{ borderColor: "var(--color-border-default)" }}>
+          <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+            Real protocol appeal (GenLayer's own transaction-level appeal, not RepliCourt's contract):
+          </span>
+          <button
+            type="button"
+            onClick={handleRealAppeal}
+            disabled={appealBusy || !originalTxId}
+            title={
+              originalTxId
+                ? "Calls genlayer-js's appealTransaction on this challenge's original tx hash"
+                : "Only available in the browser that originally submitted this challenge — no server-side tx index exists"
+            }
+            className="border px-3 py-1 text-xs font-medium disabled:opacity-40"
+            style={{ borderColor: "var(--color-border-default)", color: "var(--color-fg-default)" }}
+          >
+            {appealBusy ? "Appealing…" : "Appeal on-chain"}
+          </button>
+          {!originalTxId && (
+            <span className="text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+              unavailable — tx hash not in this browser
+            </span>
+          )}
+        </div>
+      )}
+      {appealResult && (
+        <p className="mt-2 text-xs" style={{ color: "var(--color-success-fg)" }}>
+          {appealResult}
+        </p>
       )}
       {error && (
         <p className="mt-2 text-xs" style={{ color: "var(--color-danger-fg)" }}>

@@ -16,6 +16,9 @@ interface BoundApi {
   postClaim: (params: Parameters<typeof api.postClaim>[1]) => Promise<`0x${string}`>;
   challenge: (params: Parameters<typeof api.challenge>[1]) => Promise<`0x${string}`>;
   escalate: (params: Parameters<typeof api.escalate>[1]) => Promise<`0x${string}`>;
+  finalizeTx: (txId: `0x${string}`) => Promise<`0x${string}`>;
+  getMinAppealBond: (txId: `0x${string}`) => Promise<bigint>;
+  appealTx: (txId: `0x${string}`, valueWei: bigint) => Promise<unknown>;
 }
 
 interface ReplicourtContextValue {
@@ -55,6 +58,9 @@ function useBoundApi(ctx: ApiCtx): BoundApi {
       postClaim: (params) => api.postClaim(ctx, params),
       challenge: (params) => api.challenge(ctx, params),
       escalate: (params) => api.escalate(ctx, params),
+      finalizeTx: (txId) => api.finalizeTx(ctx, txId),
+      getMinAppealBond: (txId) => api.getMinAppealBond(ctx, txId),
+      appealTx: (txId, valueWei) => api.appealTx(ctx, txId, valueWei),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ctx.readClient, ctx.writeClient, ctx.account, ctx.contractAddress]

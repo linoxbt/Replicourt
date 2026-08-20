@@ -55,9 +55,10 @@ consensus rather than a single model call or a moderator's judgment.
 ## Features
 
 - **Global claim registry** — every posted claim, live confidence score, stake
-  size, and challenge count, sortable by most-confident / most-contested.
+  size, and challenge count, sortable by most-confident / most-contested, with
+  **search and filters** (free text, category, minimum confidence, minimum stake).
 - **Post a claim** — stake GEN on a specific, checkable empirical claim (an
-  effect size, a study design, a source citation); a deterministic
+  effect size, a study design, a source citation, a category); a deterministic
   source-existence check runs before it's accepted.
 - **Challenge a claim** — stake GEN against it with counter-evidence URLs and a
   free-text description of what the evidence shows and why it should move
@@ -70,12 +71,24 @@ consensus rather than a single model call or a moderator's judgment.
     explicit criteria.
 - **Evidence trail** — a reverse-chronological, fully timestamped record of
   every challenge on a claim: the challenger's argument, the validators' own
-  rationale, the confidence delta, and the source links — not a single
-  overwritten verdict.
+  rationale (with **source credibility** broken out as its own field), the
+  confidence delta, and the source links — not a single overwritten verdict.
 - **Confidence chart** — a live chart of a claim's confidence score over time,
   built from its evidence trail.
 - **Escalation** — contested resolutions can be escalated to a larger validator
-  panel (5 → 9 validators) under a stricter convergence tolerance.
+  panel (5 → 9 validators) under a stricter convergence tolerance, plus a
+  separate **real on-chain appeal** button (GenLayer's own protocol-level
+  appeal, testnet Asimov only — see "Live deployment").
+- **Manual finalize** — a `finalize(txId)` button for testnet Asimov
+  transactions this browser submitted, since real testnet writes don't
+  auto-finalize the way studionet's hosted network does.
+- **Embeddable confidence badge** — a live SVG badge for any claim
+  (`/.netlify/functions/badge?claim=<id>`), copyable as markdown, for dropping
+  into the paper/blog post/README the claim is actually about.
+- **Leaderboard** — ranked by resolutions won (claims successfully defended +
+  challenges that moved confidence), with win rate and total GEN staked.
+- **Notifications** — a bell in the nav that polls for "your claim was
+  challenged" / "your challenge was resolved" against the connected wallet.
 - **Per-wallet dashboard** — your posted claims and your challenges, with a win
   rate.
 - **Real wallet connect** — Reown AppKit (EIP-1193), not a burner-key stub, with
@@ -142,7 +155,13 @@ instead of breaking.
 
 ## Live deployment
 
-**Studionet** (studio.genlayer.com): `0xbafe748FE66B7fB41046E81040195431439dE492`
+**Studionet** (studio.genlayer.com): `0x62bb3DF3DC9a0F176f601460509a1DAb4cC0fdB0`
+
+Redeployed once since the original run below to add a **`category` field**
+(`post_claim`'s new final argument) — live-verified: posted a claim with
+`category="psychology"` and confirmed `get_claim` round-trips it correctly.
+This is the version the frontend's registry search/filter and the embeddable
+badge function are built against.
 
 Verified end-to-end against real infrastructure, not just local mocks: a claim was
 posted ("A daily 10-minute walk reduces resting heart rate by 5% over 8 weeks"),
@@ -189,18 +208,40 @@ in `READY_TO_FINALIZE` — state changes aren't visible to reads until a separat
 public `finalize(txId)` call succeeds, and that call itself reverts if attempted
 before the protocol's appeal/finality window has elapsed. This is expected chain
 behavior (anyone can call finalize — a keeper, the poster, a frontend cron), not a
-RepliCourt bug; the frontend doesn't currently drive this call automatically — see
-"Explicitly deferred" below.
+RepliCourt bug. The frontend now offers a manual **Finalize** button on
+`ClaimDetail` for any tx it submitted itself (see `lib/txLog.ts` and
+`FinalizePanel.tsx`) — there's no server-side transaction index, so this only
+covers transactions submitted from the same browser; a real always-on keeper is
+still future work (see "Explicitly deferred").
+
+**Note:** testnet Asimov is still running the contract version from the run
+above (pre-`category` field) — its deployer keystore's password wasn't
+retained anywhere durable this session (by design — it's never written into
+the repo), so redeploying it requires either that password or funding a fresh
+account via the faucet again. `get_claim` reads on testnet Asimov simply won't
+have a `category` key until it's redeployed; the frontend treats a missing
+category as `"uncategorized"` rather than breaking.
+
+**Real protocol appeal is testnet-Asimov-only.** `genlayer-js`'s
+`appealTransaction`/`getMinAppealBond` need a chain preset with
+`feeManagerContract`/`roundsStorageContract` wired in — studio.genlayer.com's
+hosted preset doesn't have them (`getMinAppealBond` fails with "Appeal bond
+calculation not supported on this chain"), confirmed live rather than assumed.
+The Escalation page's **Appeal on-chain** button (as opposed to `escalate()`'s
+contract-level approximation) only renders on testnet Asimov as a result — see
+`network.supportsAppeal` in `lib/networks.ts`.
 
 ## Repo layout
 
 ```
-contracts/replicourt.py     the Intelligent Contract
-tests/direct/                fast, no-Docker unit tests (23 passing)
-tests/integration/           Studio-mode consensus tests (optional, slower)
-deploy/deployScript.ts       one-time deploy script for a fresh localnet
-frontend/                    Vite + React + TypeScript + Tailwind + genlayer-js
-assets/brand/                logo/favicon SVG + PNG set
+contracts/replicourt.py            the Intelligent Contract
+tests/direct/                       fast, no-Docker unit tests (25 passing)
+tests/integration/                  Studio-mode consensus tests (optional, slower)
+deploy/deployScript.ts              one-time deploy script for any network
+frontend/                           Vite + React + TypeScript + Tailwind + genlayer-js
+frontend/netlify/functions/badge.mts embeddable live confidence badge (SVG)
+assets/brand/                       logo/favicon SVG + PNG set
+netlify.toml                        Netlify build + functions config
 ```
 
 ## Contract API
@@ -215,7 +256,7 @@ below for why.
 
 | Method | Signature | What it does |
 | --- | --- | --- |
-| `post_claim` | `(claim_id, description, effect_size_bps, study_design, source_url) -> None` | Stakes the sent GEN on a new claim. Runs a deterministic `strict_eq` check that `source_url` actually resolves before accepting. |
+| `post_claim` | `(claim_id, description, effect_size_bps, study_design, source_url, category) -> None` | Stakes the sent GEN on a new claim. Runs a deterministic `strict_eq` check that `source_url` actually resolves before accepting. `category` is free text (blank falls back to `"uncategorized"`); the frontend suggests a fixed list so registry filtering has a stable set to group by. |
 | `challenge` | `(challenge_id, claim_id, counter_refs, evidence_description, mode) -> None` | Stakes the sent GEN against a claim. `mode` is `"comparative"` or `"non_comparative"`. Fetches every URL in `counter_refs` live, resolves via the matching Equivalence Principle, and settles stakes in the same call. |
 | `escalate` | `(challenge_id) -> None` | Stakes an extra bond to re-resolve an already-resolved challenge under a stricter tolerance and a larger (9 vs. 5) validator panel. Does not reverse the original settlement. |
 
@@ -301,7 +342,8 @@ uvx --from genvm-linter genvm-lint check contracts/replicourt.py
 pytest tests/direct/ -v
 ```
 
-23 direct-mode tests cover: claim posting + source-reachability, both EP modes'
+25 direct-mode tests cover: claim posting + source-reachability + category
+defaulting, both EP modes'
 win/loss decisions, stake-ratio enforcement, the challenger-win-threshold
 boundary, escalation, and LLM-response parsing/resilience (key aliasing, range
 clamping, markdown-fence/trailing-comma cleanup).
@@ -379,16 +421,21 @@ see [Explicitly deferred](#explicitly-deferred-out-of-scope-for-this-hackathon-b
 
 ## Explicitly deferred (out of scope for this hackathon build)
 
-- Automatically calling `finalize(txId)` on testnet Asimov after a transaction
-  reaches `READY_TO_FINALIZE` (see the Asimov section above) — the frontend
-  currently only waits for `ACCEPTED`, which is sufficient on studionet but not
-  enough for testnet reads to reflect a write yet.
-- The real protocol-native appeal flow as a live, wired button (the UI
-  visualizes the concept; triggering a real `genlayer appeal` on a
-  transaction hash is future work).
+- An **always-on finalize keeper** for testnet Asimov — the frontend's
+  `finalize(txId)` button (see "Live deployment") only covers transactions
+  submitted from the same browser, since there's no server-side transaction
+  index; a real keeper (scheduled function + a DB of pending tx ids) is future
+  work.
+- The **registry, leaderboard, and notifications all use an N+1 read
+  pattern** (one `get_challenges_for_claim` call per claim) — fine at
+  hackathon scale, but the contract doesn't expose a batched or wallet-indexed
+  view, so this wouldn't scale to a registry with thousands of claims without
+  either a new view method or an off-chain indexer.
 - Cross-contract composition — single contract only.
 - Formal economic modeling of the 80/20 slash ratio — it's a documented,
   tunable constant, not a derived model.
+- Redeploying testnet Asimov with the `category` field — blocked on its
+  deployer keystore's password (see "Live deployment").
 
 ## License
 

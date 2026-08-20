@@ -22,7 +22,7 @@ def _post_claim(contract, direct_vm, poster, stake=CLAIM_STAKE):
     direct_vm.mock_web(SOURCE_URL.replace(".", r"\."), {"status": 200, "body": "ok"})
     direct_vm.sender = poster
     direct_vm.value = stake
-    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL)
+    contract.post_claim("claim-1", CLAIM_DESC, 2300, "RCT, n=120", SOURCE_URL, "health")
     direct_vm.value = 0
 
 
