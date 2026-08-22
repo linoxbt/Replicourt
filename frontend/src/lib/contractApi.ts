@@ -11,7 +11,11 @@ export interface Claim {
   category: string;
   stake: string;
   confidence_bps: number;
-  status: "active" | "under_challenge" | "resolved";
+  // "active" until the first challenge; "contested" from then on — never a
+  // terminal lock. A claim can be challenged repeatedly (see round_count);
+  // that's the actual "continuously-updating registry" property.
+  status: "active" | "contested";
+  round_count: number;
   created_at: number;
 }
 
@@ -38,6 +42,7 @@ export interface EvidenceEvent {
   evidence_description: string;
   mode: "comparative" | "non_comparative" | "escalated_comparative" | "escalated_non_comparative";
   rationale: string;
+  round: number;
   timestamp: number;
 }
 
@@ -53,6 +58,7 @@ export interface Challenge {
   delta_bps: number;
   rationale: string;
   escalated: boolean;
+  round: number;
   created_at: number;
   resolved_at: number;
 }

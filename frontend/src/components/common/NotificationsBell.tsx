@@ -36,38 +36,40 @@ export function NotificationsBell() {
       const perClaim = await Promise.all(all.map((c) => api.getChallengesForClaim(c.id)));
       if (cancelled) return;
 
+      // A claim can now be challenged repeatedly — walk every round, not just
+      // the first, so a claim's 2nd+ challenge doesn't silently go unnoticed.
       const found: Notification[] = [];
       all.forEach((claim, i) => {
-        const ch = perClaim[i][0];
-        if (!ch) return;
-        if (sameAddress(claim.poster, address)) {
-          const id = `poster:${ch.id}`;
-          if (!seen.has(id)) {
-            found.push({
-              id,
-              claimId: claim.id,
-              claimDescription: claim.description,
-              text:
-                ch.status === "resolved_challenge_wins"
-                  ? `Your claim lost a challenge from ${shortAddress(ch.challenger)}`
-                  : `Your claim survived a challenge from ${shortAddress(ch.challenger)}`,
-              positive: ch.status !== "resolved_challenge_wins",
-            });
+        for (const ch of perClaim[i]) {
+          if (sameAddress(claim.poster, address)) {
+            const id = `poster:${ch.id}`;
+            if (!seen.has(id)) {
+              found.push({
+                id,
+                claimId: claim.id,
+                claimDescription: claim.description,
+                text:
+                  ch.status === "resolved_challenge_wins"
+                    ? `Your claim lost round ${ch.round} to a challenge from ${shortAddress(ch.challenger)}`
+                    : `Your claim survived round ${ch.round}, challenged by ${shortAddress(ch.challenger)}`,
+                positive: ch.status !== "resolved_challenge_wins",
+              });
+            }
           }
-        }
-        if (sameAddress(ch.challenger, address)) {
-          const id = `challenger:${ch.id}`;
-          if (!seen.has(id)) {
-            found.push({
-              id,
-              claimId: claim.id,
-              claimDescription: claim.description,
-              text:
-                ch.status === "resolved_challenge_wins"
-                  ? `Your challenge won — confidence moved`
-                  : `Your challenge was resolved against you`,
-              positive: ch.status === "resolved_challenge_wins",
-            });
+          if (sameAddress(ch.challenger, address)) {
+            const id = `challenger:${ch.id}`;
+            if (!seen.has(id)) {
+              found.push({
+                id,
+                claimId: claim.id,
+                claimDescription: claim.description,
+                text:
+                  ch.status === "resolved_challenge_wins"
+                    ? `Your round ${ch.round} challenge won — confidence moved`
+                    : `Your round ${ch.round} challenge was resolved against you`,
+                positive: ch.status === "resolved_challenge_wins",
+              });
+            }
           }
         }
       });
@@ -125,55 +127,64 @@ export function NotificationsBell() {
       </button>
 
       {open && (
-        <div
-          className="absolute right-0 z-40 mt-1 w-80 border shadow-sm"
-          style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
-        >
+        <>
+          <button
+            type="button"
+            aria-label="close"
+            className="fixed inset-0 z-30 cursor-default"
+            onClick={() => setOpen(false)}
+            tabIndex={-1}
+          />
           <div
-            className="flex items-center justify-between border-b px-3 py-2"
-            style={{ borderColor: "var(--color-border-default)" }}
+            className="absolute right-0 z-40 mt-1 w-80 border shadow-sm"
+            style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
           >
-            <span className="text-xs font-semibold">Notifications</span>
-            {items.length > 0 && (
-              <button type="button" onClick={handleDismissAll} className="text-xs" style={{ color: "var(--color-accent-fg)" }}>
-                Dismiss all
-              </button>
+            <div
+              className="flex items-center justify-between border-b px-3 py-2"
+              style={{ borderColor: "var(--color-border-default)" }}
+            >
+              <span className="text-xs font-semibold">Notifications</span>
+              {items.length > 0 && (
+                <button type="button" onClick={handleDismissAll} className="text-xs" style={{ color: "var(--color-accent-fg)" }}>
+                  Dismiss all
+                </button>
+              )}
+            </div>
+            {items.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs" style={{ color: "var(--color-fg-muted)" }}>
+                Nothing new.
+              </p>
+            ) : (
+              <ul className="max-h-80 overflow-y-auto">
+                {items.map((n) => (
+                  <li key={n.id} className="border-b last:border-0" style={{ borderColor: "var(--color-border-default)" }}>
+                    <Link
+                      to={`/claims/${n.claimId}`}
+                      onClick={() => {
+                        if (address) markSeen(networkId, address, [n.id]);
+                        setOpen(false);
+                      }}
+                      className="block px-3 py-2 hover:bg-[var(--color-canvas-inset)]"
+                    >
+                      <p
+                        className="border-l-2 pl-2 text-xs font-medium"
+                        style={{
+                          borderLeftColor: n.positive ? "var(--color-success-fg)" : "var(--color-danger-fg)",
+                          color: n.positive ? "var(--color-success-fg)" : "var(--color-danger-fg)",
+                        }}
+                      >
+                        {n.text}
+                      </p>
+                      <p className="mt-0.5 line-clamp-1 pl-2 text-xs" style={{ color: "var(--color-fg-muted)" }}>
+                        {n.claimDescription}
+                      </p>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-          {items.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs" style={{ color: "var(--color-fg-muted)" }}>
-              Nothing new.
-            </p>
-          ) : (
-            <ul className="max-h-80 overflow-y-auto">
-              {items.map((n) => (
-                <li key={n.id} className="border-b last:border-0" style={{ borderColor: "var(--color-border-default)" }}>
-                  <Link
-                    to={`/claims/${n.claimId}`}
-                    onClick={() => {
-                      if (address) markSeen(networkId, address, [n.id]);
-                      setOpen(false);
-                    }}
-                    className="block px-3 py-2 hover:bg-[var(--color-canvas-inset)]"
-                  >
-                    <p
-                      className="border-l-2 pl-2 text-xs font-medium"
-                      style={{
-                        borderLeftColor: n.positive ? "var(--color-success-fg)" : "var(--color-danger-fg)",
-                        color: n.positive ? "var(--color-success-fg)" : "var(--color-danger-fg)",
-                      }}
-                    >
-                      {n.text}
-                    </p>
-                    <p className="mt-0.5 line-clamp-1 pl-2 text-xs" style={{ color: "var(--color-fg-muted)" }}>
-                      {n.claimDescription}
-                    </p>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

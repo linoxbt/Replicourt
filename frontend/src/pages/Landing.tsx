@@ -36,7 +36,11 @@ const tickerItems = [
 function Ticker() {
   const items = [...tickerItems, ...tickerItems];
   return (
-    <div className="overflow-hidden border-y" style={{ borderColor: "#1f2937", background: "#05070a" }}>
+    <div
+      className="overflow-hidden border-y"
+      style={{ borderColor: "#1f2937", background: "#05070a" }}
+      aria-hidden="true"
+    >
       <div className="ticker-track flex w-max items-center gap-8 py-3">
         {items.map((t, i) => (
           <span key={i} className="flex items-center gap-2 whitespace-nowrap font-mono text-xs tracking-wide" style={{ color: "#8b98a8" }}>

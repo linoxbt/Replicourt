@@ -50,6 +50,9 @@ export function EvidenceTrail({ trail }: { trail: EvidenceEvent[] }) {
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium" style={{ color: "var(--color-fg-subtle)" }}>
+                  Round {ev.round}
+                </span>
                 <span
                   className="font-mono text-sm font-semibold"
                   style={{ color: positive ? "var(--color-success-fg)" : "var(--color-danger-fg)" }}

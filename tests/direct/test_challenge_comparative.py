@@ -36,7 +36,7 @@ def test_challenge_comparative_challenger_wins(direct_vm, direct_deploy, direct_
     claim = contract.get_claim("claim-1")
     # confidence started at 5000, delta -30% -> -3000bps -> 2000
     assert claim["confidence_bps"] == 2000
-    assert claim["status"] == "resolved"
+    assert claim["status"] == "contested"
 
     challenges = contract.get_challenges_for_claim("claim-1")
     assert len(challenges) == 1
@@ -122,3 +122,26 @@ def test_challenge_requires_evidence_description(direct_vm, direct_deploy, direc
     direct_vm.value = 3 * 10**18
     with direct_vm.expect_revert("evidence_description is required"):
         contract.challenge("challenge-1", "claim-1", [COUNTER_URL], "   ", "comparative")
+
+
+def test_challenge_zero_stake_rejected(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy("contracts/replicourt.py")
+    _post_claim(contract, direct_vm, direct_alice, stake=10 * 10**18)
+    _mock_counter_evidence(direct_vm)
+
+    direct_vm.sender = direct_bob
+    direct_vm.value = 0
+    with direct_vm.expect_revert("nonzero stake"):
+        contract.challenge("challenge-1", "claim-1", [COUNTER_URL], "Counter-evidence description for testing.", "comparative")
+
+
+def test_challenge_too_many_counter_refs_rejected(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy("contracts/replicourt.py")
+    _post_claim(contract, direct_vm, direct_alice, stake=10 * 10**18)
+    _mock_counter_evidence(direct_vm)
+
+    too_many_refs = [COUNTER_URL] * 6  # MAX_COUNTER_REFS is 5
+    direct_vm.sender = direct_bob
+    direct_vm.value = 3 * 10**18
+    with direct_vm.expect_revert("at most 5 counter_refs"):
+        contract.challenge("challenge-1", "claim-1", too_many_refs, "Counter-evidence description for testing.", "comparative")

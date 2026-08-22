@@ -20,14 +20,26 @@ interface Point {
   rationale: string | null;
 }
 
+// Escalating a challenge doesn't create a new challenge — it re-resolves the same
+// one, and the contract's own math reflects that: escalate() computes
+// `prior_conf = claim.confidence_bps - ch.delta_bps` before applying the new
+// delta, i.e. it SUBTRACTS the original delta before adding the escalated one
+// (see replicourt.py's escalate()). The evidence trail keeps both events (the
+// original challenge's and the escalation's) under the same challenge_id, so
+// naively summing every event's delta double-counts the original one. This
+// mirrors the contract's own subtract-then-add exactly, including its documented
+// approximation that doesn't perfectly undo 0/10000 clamping between the two.
 function buildSeries(claim: Claim, trail: EvidenceEvent[]): Point[] {
   const sorted = [...trail].sort((a, b) => a.timestamp - b.timestamp);
   let running = 5000;
+  const appliedByChallenge = new Map<string, number>();
   const points: Point[] = [
     { t: claim.created_at, label: "Posted", confidence: running / 100, delta: null, mode: null, rationale: null },
   ];
   for (const ev of sorted) {
-    running = Math.max(0, Math.min(10000, running + ev.delta_bps));
+    const previouslyApplied = appliedByChallenge.get(ev.challenge_id) ?? 0;
+    running = Math.max(0, Math.min(10000, running - previouslyApplied + ev.delta_bps));
+    appliedByChallenge.set(ev.challenge_id, ev.delta_bps);
     points.push({
       t: ev.timestamp,
       label: formatTimestamp(ev.timestamp),
@@ -36,6 +48,13 @@ function buildSeries(claim: Claim, trail: EvidenceEvent[]): Point[] {
       mode: ev.mode,
       rationale: ev.rationale,
     });
+  }
+  // Belt-and-suspenders: the reconstructed curve is best-effort for the historical
+  // shape, but the current point must always agree with the authoritative on-chain
+  // confidence_bps shown right next to this chart (ConfidenceGauge) — never let a
+  // frontend re-derivation bug show a different "current" number than the real one.
+  if (points.length > 0) {
+    points[points.length - 1] = { ...points[points.length - 1], confidence: claim.confidence_bps / 100 };
   }
   return points;
 }

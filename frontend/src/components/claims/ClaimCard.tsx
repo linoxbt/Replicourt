@@ -6,12 +6,7 @@ import { formatPercent, relativeTime } from "../../lib/format";
 
 const statusMeta: Record<Claim["status"], { label: string; fg: string; bg: string }> = {
   active: { label: "Active", fg: "var(--color-fg-muted)", bg: "var(--color-canvas-inset)" },
-  under_challenge: {
-    label: "Under challenge",
-    fg: "var(--color-attention-fg)",
-    bg: "var(--color-attention-subtle)",
-  },
-  resolved: { label: "Resolved", fg: "var(--color-success-fg)", bg: "var(--color-success-subtle)" },
+  contested: { label: "Contested", fg: "var(--color-attention-fg)", bg: "var(--color-attention-subtle)" },
 };
 
 export function ClaimCard({

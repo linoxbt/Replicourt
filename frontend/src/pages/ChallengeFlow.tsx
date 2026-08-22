@@ -10,6 +10,12 @@ const labelClass = "mb-1 block text-xs font-medium";
 
 type Mode = "comparative" | "non_comparative";
 
+// Mirrors the contract's own limits (replicourt.py: evidence_description[:1000],
+// MAX_COUNTER_REFS = 5) so the UI enforces them up front instead of silently
+// truncating or reverting after a wallet-signing round trip.
+const EVIDENCE_MAX_LEN = 1000;
+const MAX_COUNTER_REFS = 5;
+
 export function ChallengeFlow() {
   const { claimId } = useParams<{ claimId: string }>();
   const navigate = useNavigate();
@@ -28,10 +34,14 @@ export function ChallengeFlow() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!claimId) return;
+    if ((Number(stake) || 0) <= 0) {
+      setError("Stake must be greater than 0 GEN.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const challengeId = `${claimId}-ch-${Date.now().toString(36)}`;
+      const challengeId = `${claimId}-ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const hash = await api.challenge({
         challengeId,
         claimId,
@@ -93,6 +103,7 @@ export function ChallengeFlow() {
           <textarea
             required
             rows={4}
+            maxLength={EVIDENCE_MAX_LEN}
             value={evidenceDescription}
             onChange={(e) => setEvidenceDescription(e.target.value)}
             placeholder={
@@ -103,10 +114,18 @@ export function ChallengeFlow() {
             className={inputClass}
             style={inputStyle}
           />
-          <p className="mt-1 text-xs" style={{ color: "var(--color-fg-subtle)" }}>
-            Explain what the evidence shows and why it should move confidence. Validators weigh this
-            against what the fetched sources actually say — they won't just take your word for it.
-          </p>
+          <div className="mt-1 flex items-center justify-between">
+            <p className="text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+              Explain what the evidence shows and why it should move confidence. Validators weigh this
+              against what the fetched sources actually say — they won't just take your word for it.
+            </p>
+            <span
+              className="shrink-0 pl-2 font-mono text-xs"
+              style={{ color: evidenceDescription.length >= EVIDENCE_MAX_LEN ? "var(--color-danger-fg)" : "var(--color-fg-subtle)" }}
+            >
+              {evidenceDescription.length}/{EVIDENCE_MAX_LEN}
+            </span>
+          </div>
         </div>
 
         <div>
@@ -125,14 +144,20 @@ export function ChallengeFlow() {
               />
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setRefs((prev) => [...prev, ""])}
-            className="mt-2 text-xs font-medium"
-            style={{ color: "var(--color-accent-fg)" }}
-          >
-            + Add another source
-          </button>
+          {refs.length < MAX_COUNTER_REFS ? (
+            <button
+              type="button"
+              onClick={() => setRefs((prev) => [...prev, ""])}
+              className="mt-2 text-xs font-medium"
+              style={{ color: "var(--color-accent-fg)" }}
+            >
+              + Add another source
+            </button>
+          ) : (
+            <p className="mt-2 text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+              Maximum {MAX_COUNTER_REFS} sources per challenge.
+            </p>
+          )}
         </div>
 
         <div>

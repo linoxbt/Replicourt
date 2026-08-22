@@ -32,6 +32,11 @@ export function PostClaim() {
   const [stake, setStake] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lazy initializer runs once on mount, not on every render — Date.now() is an
+  // impure function and calling it directly in the render body (as this used to)
+  // produces unstable results across re-renders (oxlint's react/purity rule flags
+  // this).
+  const [previewCreatedAt] = useState(() => Math.floor(Date.now() / 1000));
 
   const effectSizeBps = Math.round((Number(effectSize) || 0) * 100);
 
@@ -45,16 +50,21 @@ export function PostClaim() {
     category,
     stake: String(Math.round((Number(stake) || 0) * 1e18)),
     confidence_bps: 5000,
+    round_count: 0,
     status: "active",
-    created_at: Math.floor(Date.now() / 1000),
+    created_at: previewCreatedAt,
   };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if ((Number(stake) || 0) <= 0) {
+      setError("Stake must be greater than 0 GEN.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const claimId = `${slugify(description)}-${Date.now().toString(36)}`;
+      const claimId = `${slugify(description)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const hash = await api.postClaim({
         claimId,
         description,

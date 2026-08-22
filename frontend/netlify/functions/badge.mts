@@ -2,15 +2,17 @@
 // Returns a live SVG showing a claim's current on-chain confidence score — meant to
 // be dropped as an <img> into the paper/blog post/README the claim is about, e.g.
 //   ![RepliCourt confidence](https://replicourt.netlify.app/.netlify/functions/badge?claim=my-claim-id)
-// Duplicates the two live contract addresses from src/lib/networks.ts rather than
-// importing that module directly — it pulls in Reown/AppKit browser-only code that
-// has no place in a server function.
+// Addresses come from the shared, dependency-free contractAddresses.ts (not from
+// networks.ts directly, which pulls in Reown/AppKit browser-only code that has no
+// place in a server function) — previously duplicated as separate literals here,
+// which drifted out of sync after a redeploy. See the audit that caught it.
 import { createClient } from "genlayer-js";
 import * as chains from "genlayer-js/chains";
+import { CONTRACT_ADDRESSES } from "../../src/lib/contractAddresses";
 
 const NETWORKS: Record<string, { chain: (typeof chains)["studionet"]; address: `0x${string}` }> = {
-  studionet: { chain: chains.studionet, address: "0x62bb3DF3DC9a0F176f601460509a1DAb4cC0fdB0" },
-  testnetAsimov: { chain: chains.testnetAsimov, address: "0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5" },
+  studionet: { chain: chains.studionet, address: CONTRACT_ADDRESSES.studionet },
+  testnetAsimov: { chain: chains.testnetAsimov, address: CONTRACT_ADDRESSES.testnetAsimov },
 };
 
 function escapeXml(s: string): string {
@@ -69,7 +71,17 @@ export default async (req: Request) => {
     const confidencePct = claim.confidence_bps / 100;
     const color = confidencePct >= 66 ? "#0f6a6a" : confidencePct >= 33 ? "#c98a12" : "#b3261e";
     return new Response(svgBadge("RepliCourt confidence", `${confidencePct.toFixed(1)}%`, color), { headers });
-  } catch {
-    return new Response(errorBadge("claim not found"), { headers, status: 404 });
+  } catch (e) {
+    // Distinguish a real "no such claim" (the contract's own [EXPECTED] unknown
+    // claim revert) from RPC/network failures — collapsing both into one generic
+    // message masked real operational issues and gave misleading info to anyone
+    // viewing the badge. Errors get a short cache so a transient RPC blip doesn't
+    // freeze a wrong badge for the full 5-minute window.
+    const message = e instanceof Error ? e.message : String(e);
+    const errorHeaders = { ...headers, "cache-control": "public, max-age=30" };
+    if (message.includes("unknown claim")) {
+      return new Response(errorBadge("claim not found"), { headers: errorHeaders, status: 404 });
+    }
+    return new Response(errorBadge("temporarily unavailable"), { headers: errorHeaders, status: 503 });
   }
 };

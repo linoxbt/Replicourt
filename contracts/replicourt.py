@@ -38,7 +38,38 @@ spec's illustrative skeleton, which is stale on several points):
   re-recorded evidence event. It revises the recorded confidence and evidence
   trail; it deliberately does NOT reverse stakes already settled by the
   original challenge() call — a full re-settlement flow is out of scope for
-  this hackathon MVP.
+  this hackathon MVP. The escalation bond is spam-prevention, not a bet — since
+  there's no re-settlement to fold it into, it's refunded to the escalator once
+  resolution completes (see the end of escalate()) rather than left stuck.
+  escalate() only ever operates on the MOST RECENT challenge for a claim — its
+  confidence-recovery math (prior_conf = claim.confidence_bps - ch.delta_bps)
+  only holds if ch was the last thing to touch confidence_bps, which repeated
+  challenge rounds (below) would otherwise violate.
+- A claim can be challenged repeatedly ("rounds"), not just once — this is
+  the actual "continuously-updating registry" the product is about, and the
+  original one-shot-then-permanently-"resolved" design didn't implement it.
+  claim.stake is a persistent backing pool that evolves across rounds instead
+  of being fully paid out on the first challenge:
+    * Challenger wins a round: paid ch.stake + 80%*claim.stake (unchanged
+      ratio); claim.stake is reduced by that 80% — the leftover 20% simply
+      remains as claim.stake going forward (shrinks each loss, isn't swept
+      anywhere), so the claim stays challengeable at whatever backing remains.
+    * Claim wins a round: poster is paid 80%*challenger.stake ONLY —
+      claim.stake is left untouched, not paid out. This is a deliberate
+      change from a one-shot model (where the poster's whole stake would
+      return to them on every win): posting a claim is now an ongoing stake
+      commitment for as long as it's listed, since there's no mechanism to
+      replenish claim.stake otherwise. The other 20% of the challenger's
+      stake stays as an un-attributed protocol reserve, same documented gap
+      as the challenger-wins case.
+  min_stake per round uses claim.stake's CURRENT value, floored by
+  MIN_ABSOLUTE_CHALLENGE_STAKE_WEI so a heavily-eroded pool (after several
+  consecutive losses) can't let the ratio-based minimum collapse toward 0 —
+  that would decouple the anti-spam guard from its purpose (cheap repeated
+  LLM-consensus rounds are a validator-cost DoS vector even once there's
+  nothing left in the pool to actually extract). No cap on round count —
+  the absolute-stake floor plus real per-round LLM-consensus cost is the
+  practical throttle, not an artificial terminal state.
 """
 
 from genlayer import *
@@ -62,6 +93,11 @@ ESCALATED_TOLERANCE_PCT = 3.0        # tighter tolerance once a challenge is esc
 SLASH_WINNER_SHARE_BPS = 8000        # winner takes 80% of the loser's stake
 CHALLENGER_WIN_THRESHOLD_BPS = 500   # confidence must drop >=5pp for the challenger to "win"
 MAX_SOURCE_CHARS = 3000              # per-source text budget fed into prompts
+MAX_COUNTER_REFS = 5                 # cap on URLs per challenge — unbounded refs would force every
+                                      # validator to fetch all of them, inflating consensus cost/time
+MIN_ABSOLUTE_CHALLENGE_STAKE_WEI = 1 * 10**16  # 0.01 GEN floor, independent of claim.stake's ratio —
+                                                # keeps the anti-spam guard meaningful even once a
+                                                # claim's backing pool has eroded toward 0
 
 
 @allow_storage
@@ -76,7 +112,8 @@ class Claim:
     category: str
     stake: u256
     confidence_bps: u32
-    status: str          # "active" | "under_challenge" | "resolved"
+    status: str          # "active" (never challenged) | "contested" (round_count > 0)
+    round_count: u32      # how many challenge rounds this claim has been through
     created_at: u64
 
 
@@ -94,6 +131,7 @@ class Challenge:
     delta_bps: i32
     rationale: str
     escalated: bool
+    round: u32              # which round of this claim's history this challenge is (1-indexed)
     created_at: u64
     resolved_at: u64
 
@@ -108,6 +146,7 @@ class EvidenceEvent:
     evidence_description: str
     mode: str
     rationale: str
+    round: u32
     timestamp: u64
 
 
@@ -290,13 +329,22 @@ with no support in the source text.
 
     def _settle(self, claim: Claim, ch: Challenge, challenger_wins: bool) -> None:
         if challenger_wins:
-            loser_stake = claim.stake
-            winner_bonus = loser_stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
-            self._pay_out(ch.challenger, ch.stake + winner_bonus)
+            # 80% of the claim's current backing pool goes to the challenger as a
+            # bonus on top of their own stake back; the leftover 20% simply stays
+            # as claim.stake going forward — it isn't consumed, it's what's left
+            # to back the claim through its next round.
+            winner_bonus = claim.stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
+            payout = ch.stake + winner_bonus
+            claim.stake = claim.stake - winner_bonus
+            self._pay_out(ch.challenger, payout)
         else:
-            loser_stake = ch.stake
-            winner_bonus = loser_stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
-            self._pay_out(claim.poster, claim.stake + winner_bonus)
+            # The poster is paid only the bonus (80% of the challenger's stake) —
+            # claim.stake itself is never paid out on a win, unlike the old
+            # one-shot model. Posting a claim is an ongoing stake commitment for
+            # as long as it's listed; there's no mechanism to replenish
+            # claim.stake otherwise once repeated challenge rounds are allowed.
+            winner_bonus = ch.stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
+            self._pay_out(claim.poster, winner_bonus)
 
     # ---------------- writes ----------------
 
@@ -330,6 +378,7 @@ with no support in the source text.
             stake=stake,
             confidence_bps=u32(INITIAL_CONFIDENCE_BPS),
             status="active",
+            round_count=u32(0),
             created_at=self._now(),
         )
         self.claim_ids.append(claim_id)
@@ -348,14 +397,21 @@ with no support in the source text.
             raise gl.vm.UserError(f"{ERR_EXPECTED} evidence_description is required")
 
         claim = self.claims[claim_id]
-        if claim.status == "resolved":
-            raise gl.vm.UserError(f"{ERR_EXPECTED} claim already resolved")
+        # No terminal lock here — a claim can be challenged repeatedly (that's
+        # the actual "continuously-updating registry"). Each call is its own
+        # round; claim.stake persists as an evolving backing pool across rounds
+        # instead of being fully consumed by the first one (see _settle).
 
         stake = gl.message.value
-        min_stake = claim.stake * u256(CHALLENGE_MIN_RATIO_BPS) // u256(CONFIDENCE_SCALE)
+        if stake == u256(0):
+            raise gl.vm.UserError(f"{ERR_EXPECTED} challenge requires a nonzero stake")
+        ratio_min_stake = claim.stake * u256(CHALLENGE_MIN_RATIO_BPS) // u256(CONFIDENCE_SCALE)
+        min_stake = max(u256(MIN_ABSOLUTE_CHALLENGE_STAKE_WEI), ratio_min_stake)
         if stake < min_stake:
             raise gl.vm.UserError(f"{ERR_EXPECTED} challenger stake below minimum")
 
+        if len(counter_refs) > MAX_COUNTER_REFS:
+            raise gl.vm.UserError(f"{ERR_EXPECTED} at most {MAX_COUNTER_REFS} counter_refs allowed")
         refs_list = [str(r) for r in counter_refs]
         evidence_description = evidence_description[:1000]
 
@@ -375,6 +431,7 @@ with no support in the source text.
         challenger_wins = delta_bps <= -CHALLENGER_WIN_THRESHOLD_BPS
         status = "resolved_challenge_wins" if challenger_wins else "resolved_claim_wins"
         now = self._now()
+        this_round = int(claim.round_count) + 1
 
         # Assigning a plain python list into a DynArray[str]-typed dataclass field
         # converts it to persistent storage; DynArray can't be user-instantiated
@@ -384,7 +441,7 @@ with no support in the source text.
             counter_refs=refs_list, evidence_description=evidence_description, mode=mode,
             stake=stake, status=status,
             delta_bps=i32(delta_bps), rationale=rationale, escalated=False,
-            created_at=now, resolved_at=now,
+            round=u32(this_round), created_at=now, resolved_at=now,
         )
         if claim_id not in self.challenge_ids_by_claim:
             self.challenge_ids_by_claim[claim_id] = []
@@ -395,11 +452,17 @@ with no support in the source text.
         self.evidence_trail[claim_id].append(EvidenceEvent(
             claim_id=claim_id, challenge_id=challenge_id, delta_bps=i32(delta_bps),
             evidence_refs=refs_list, evidence_description=evidence_description,
-            mode=mode, rationale=rationale, timestamp=now,
+            mode=mode, rationale=rationale, round=u32(this_round), timestamp=now,
         ))
 
+        # State changes before the external settlement payout (checks-effects-
+        # interactions) — defensive ordering regardless of whether GenVM's async
+        # message model actually permits synchronous re-entry. status/round_count
+        # are informational now (never a lock — a claim stays challengeable
+        # indefinitely), but still updated before _settle's _pay_out call.
+        claim.round_count = u32(this_round)
+        claim.status = "contested"
         self._settle(claim, self.challenges[challenge_id], challenger_wins)
-        claim.status = "resolved"
 
     @gl.public.write.payable
     def escalate(self, challenge_id: str) -> None:
@@ -408,10 +471,20 @@ with no support in the source text.
         bond = gl.message.value
         if bond == u256(0):
             raise gl.vm.UserError(f"{ERR_EXPECTED} escalation requires a bond")
+        escalator = gl.message.sender_address
 
         ch = self.challenges[challenge_id]
         if ch.escalated:
             raise gl.vm.UserError(f"{ERR_EXPECTED} challenge already escalated")
+        # Only the most recent round can be escalated — the confidence-recovery
+        # math just below (prior_conf = claim.confidence_bps - ch.delta_bps) only
+        # holds if ch was the last thing to touch confidence_bps. With repeated
+        # challenge rounds now allowed, escalating an older round while later
+        # rounds have already stacked their own deltas on top would corrupt the
+        # whole accumulated trajectory.
+        latest_challenge_id = self.challenge_ids_by_claim[ch.claim_id][-1]
+        if challenge_id != latest_challenge_id:
+            raise gl.vm.UserError(f"{ERR_EXPECTED} can only escalate the most recent challenge round")
         claim = self.claims[ch.claim_id]
         refs_list = [r for r in ch.counter_refs]
 
@@ -441,8 +514,15 @@ with no support in the source text.
             claim_id=ch.claim_id, challenge_id=challenge_id, delta_bps=i32(delta_bps),
             evidence_refs=ch.counter_refs, evidence_description=ch.evidence_description,
             mode=f"escalated_{ch.mode}", rationale=rationale,
-            timestamp=self._now(),
+            round=ch.round, timestamp=self._now(),
         ))
+
+        # The bond is spam-prevention (paying validators for a second consensus
+        # round has a real cost, so escalation isn't free to trigger), not a bet —
+        # escalate() doesn't re-settle the original stakes, so there's no pool for
+        # the bond to join. Refund it to the escalator once resolution completes,
+        # rather than letting it sit in the contract with no defined purpose.
+        self._pay_out(escalator, bond)
 
     # ---------------- views ----------------
 
@@ -462,6 +542,7 @@ with no support in the source text.
             "stake": str(int(c.stake)),
             "confidence_bps": int(c.confidence_bps),
             "status": c.status,
+            "round_count": int(c.round_count),
             "created_at": int(c.created_at),
         }
 
@@ -482,6 +563,7 @@ with no support in the source text.
                 "evidence_description": ev.evidence_description,
                 "mode": ev.mode,
                 "rationale": ev.rationale,
+                "round": int(ev.round),
                 "timestamp": int(ev.timestamp),
             }
             for ev in self.evidence_trail[claim_id]
@@ -506,6 +588,7 @@ with no support in the source text.
                 "delta_bps": int(ch.delta_bps),
                 "rationale": ch.rationale,
                 "escalated": ch.escalated,
+                "round": int(ch.round),
                 "created_at": int(ch.created_at),
                 "resolved_at": int(ch.resolved_at),
             })

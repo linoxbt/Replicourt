@@ -48,10 +48,8 @@ export function Leaderboard() {
         const perClaim = await Promise.all(claims.map((c) => api.getChallengesForClaim(c.id)));
         if (cancelled) return;
 
-        // A claim can be challenged at most once — challenge() marks the claim
-        // "resolved" (win or lose) in the same call, and challenge() itself
-        // rejects challenges against an already-resolved claim. escalate() can
-        // re-resolve that same challenge later but never creates a second one.
+        // A claim can now be challenged repeatedly (round 1, round 2, ...) —
+        // count every round, not just the first, for every claim.
         const table = new Map<string, Row>();
         claims.forEach((claim, i) => {
           const poster = addStake(table, claim.poster);
@@ -59,21 +57,20 @@ export function Leaderboard() {
           poster.totalStakedWei += BigInt(claim.stake);
 
           const challenges: Challenge[] = perClaim[i];
-          const ch = challenges[0];
-          if (!ch) return;
+          for (const ch of challenges) {
+            const challenger = addStake(table, ch.challenger);
+            challenger.challengesMade += 1;
+            challenger.totalStakedWei += BigInt(ch.stake);
+            challenger.totalActions += 1;
+            poster.totalActions += 1;
 
-          const challenger = addStake(table, ch.challenger);
-          challenger.challengesMade += 1;
-          challenger.totalStakedWei += BigInt(ch.stake);
-          challenger.totalActions += 1;
-          poster.totalActions += 1;
-
-          if (ch.status === "resolved_challenge_wins") {
-            challenger.challengesWon += 1;
-            challenger.totalWins += 1;
-          } else {
-            poster.claimsDefended += 1;
-            poster.totalWins += 1;
+            if (ch.status === "resolved_challenge_wins") {
+              challenger.challengesWon += 1;
+              challenger.totalWins += 1;
+            } else {
+              poster.claimsDefended += 1;
+              poster.totalWins += 1;
+            }
           }
         });
 

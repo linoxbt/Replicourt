@@ -23,7 +23,15 @@ function ValidatorDots({ count, active }: { count: number; active: boolean }) {
   );
 }
 
-function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challenge; onEscalated: () => void }) {
+function ChallengeEscalationRow({
+  challenge,
+  isLatestRound,
+  onEscalated,
+}: {
+  challenge: Challenge;
+  isLatestRound: boolean;
+  onEscalated: () => void;
+}) {
   const { api, isConnected, connect, networkId, network } = useReplicourt();
   const [bond, setBond] = useState("1");
   const [busy, setBusy] = useState(false);
@@ -38,6 +46,10 @@ function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challen
   async function handleEscalate() {
     if (!isConnected) {
       connect();
+      return;
+    }
+    if ((Number(bond) || 0) <= 0) {
+      setError("Bond must be greater than 0 GEN.");
       return;
     }
     setBusy(true);
@@ -84,6 +96,9 @@ function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challen
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <div>
+          <span className="border-l-2 px-1.5 py-0.5 text-xs font-medium" style={{ borderLeftColor: "var(--color-border-default)", color: "var(--color-fg-subtle)" }}>
+            Round {challenge.round}
+          </span>{" "}
           <span className="font-mono">{shortAddress(challenge.challenger)}</span>{" "}
           <span style={{ color: "var(--color-fg-muted)" }}>
             challenged · {challenge.mode.replace("_", " ")} · resolved{" "}
@@ -102,32 +117,45 @@ function ChallengeEscalationRow({ challenge, onEscalated }: { challenge: Challen
           Escalated — re-resolved by an expanded {ESCALATED_PANEL}-validator panel under a tighter
           convergence tolerance.
         </p>
+      ) : !isLatestRound ? (
+        <p className="mt-2 text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+          This round has since been followed by a newer challenge — only the most recent round on a
+          claim can be escalated (escalating an older round would corrupt the confidence built on top
+          of it since).
+        </p>
       ) : (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-            {contested ? "Close resolution — " : ""}Escalate to a larger validator panel:
-          </span>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={bond}
-            onChange={(e) => setBond(e.target.value)}
-            className="w-20 border px-2 py-1 text-xs font-mono"
-            style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
-          />
-          <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-            GEN bond
-          </span>
-          <button
-            type="button"
-            onClick={handleEscalate}
-            disabled={busy}
-            className="px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-            style={{ background: "var(--color-accent-emphasis)" }}
-          >
-            {busy ? "Escalating…" : "Escalate"}
-          </button>
+        <div className="mt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+              {contested ? "Close resolution — " : ""}Escalate to a larger validator panel:
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              value={bond}
+              onChange={(e) => setBond(e.target.value)}
+              className="w-20 border px-2 py-1 text-xs font-mono"
+              style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
+            />
+            <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
+              GEN bond (refunded once resolved)
+            </span>
+            <button
+              type="button"
+              onClick={handleEscalate}
+              disabled={busy}
+              className="px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+              style={{ background: "var(--color-accent-emphasis)" }}
+            >
+              {busy ? "Escalating…" : "Escalate"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs" style={{ color: "var(--color-fg-subtle)" }}>
+            Escalation revises the recorded confidence and evidence trail but does <strong>not</strong>{" "}
+            reverse the stake payout from this challenge's original resolution — whoever won that
+            keeps it, even if the escalated re-derivation lands differently.
+          </p>
         </div>
       )}
 
@@ -186,10 +214,21 @@ export function EscalationPanel({
     );
   }
 
+  // The contract only allows escalating the most recent round for a claim —
+  // escalating an older one would corrupt the confidence trajectory later
+  // rounds already built on top of. get_challenges_for_claim returns rounds
+  // in creation order, so the last entry is always the latest.
+  const latestChallengeId = challenges[challenges.length - 1]?.id;
+
   return (
     <div className="space-y-3">
       {challenges.map((c) => (
-        <ChallengeEscalationRow key={c.id} challenge={c} onEscalated={onEscalated} />
+        <ChallengeEscalationRow
+          key={c.id}
+          challenge={c}
+          isLatestRound={c.id === latestChallengeId}
+          onEscalated={onEscalated}
+        />
       ))}
     </div>
   );

@@ -137,14 +137,22 @@ export function ClaimDetail() {
 
 function EmbedBadge({ claimId, networkId }: { claimId: string; networkId: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const badgeUrl = `${window.location.origin}/.netlify/functions/badge?claim=${encodeURIComponent(claimId)}&network=${networkId}`;
   const markdown = `[![RepliCourt confidence](${badgeUrl})](${window.location.origin}/claims/${claimId})`;
 
   function handleCopy() {
-    navigator.clipboard.writeText(markdown).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
+    navigator.clipboard
+      .writeText(markdown)
+      .then(() => {
+        setCopied(true);
+        setCopyError(false);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {
+        setCopyError(true);
+        setTimeout(() => setCopyError(false), 2000);
+      });
   }
 
   return (
@@ -152,6 +160,12 @@ function EmbedBadge({ claimId, networkId }: { claimId: string; networkId: string
       <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-fg-subtle)" }}>
         Embed this claim's live confidence score
       </p>
+      {import.meta.env.DEV && (
+        <p className="mt-1 text-xs" style={{ color: "var(--color-attention-fg)" }}>
+          This badge only renders when deployed to Netlify — `vite dev` doesn't run Netlify
+          Functions, so the image below will look broken locally.
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <img src={badgeUrl} alt="RepliCourt confidence badge" height={20} />
         <button
@@ -160,7 +174,7 @@ function EmbedBadge({ claimId, networkId }: { claimId: string; networkId: string
           className="border px-2.5 py-1 text-xs font-medium"
           style={{ borderColor: "var(--color-border-default)" }}
         >
-          {copied ? "Copied!" : "Copy markdown"}
+          {copyError ? "Copy failed" : copied ? "Copied!" : "Copy markdown"}
         </button>
       </div>
       <p className="mt-2 truncate font-mono text-xs" style={{ color: "var(--color-fg-subtle)" }}>

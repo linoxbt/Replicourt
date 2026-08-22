@@ -34,6 +34,8 @@ below for the actual on-chain proof.
 - [Repo layout](#repo-layout)
 - [Design decisions that diverge from the illustrative spec skeleton](#design-decisions-that-diverge-from-the-illustrative-spec-skeleton)
 - [Two real GenVM SDK bugs/quirks found and worked around while building this](#two-real-genvm-sdk-bugsquirks-found-and-worked-around-while-building-this)
+- [Audit fixes](#audit-fixes)
+- [Repeated challenge rounds](#repeated-challenge-rounds)
 - [Getting started](#getting-started)
 - [Testing](#testing)
 - [Tech stack](#tech-stack)
@@ -155,13 +157,20 @@ instead of breaking.
 
 ## Live deployment
 
-**Studionet** (studio.genlayer.com): `0x62bb3DF3DC9a0F176f601460509a1DAb4cC0fdB0`
+**Studionet** (studio.genlayer.com): `0x89CF9b74DC2F8E17aF26013683E0D953f227ad4b`
 
-Redeployed once since the original run below to add a **`category` field**
-(`post_claim`'s new final argument) — live-verified: posted a claim with
-`category="psychology"` and confirmed `get_claim` round-trips it correctly.
-This is the version the frontend's registry search/filter and the embeddable
-badge function are built against.
+Redeployed after a GenLayer Foundation Portal steward review (see "Repeated
+challenge rounds" below) added **repeated challenge rounds** — live-verified: a
+claim was challenged twice in a row (round 1, round 2), `round_count` correctly
+went 0→1→2, and confidence accumulated across both rounds (`5000 → 5000 → 5200`
+bps). Before that, it was redeployed after an independent audit (see "Audit
+fixes" below) — live-verified: posted a claim, challenged it, and escalated it
+end-to-end on real infrastructure, including confirming the escalation bond is
+actually refunded (contract balance before/after matched the exact expected
+math, not just "the call didn't revert"). Before that, it was redeployed once
+to add a **`category` field** (`post_claim`'s final argument) — live-verified:
+posted a claim with `category="psychology"` and confirmed `get_claim`
+round-trips it correctly.
 
 Verified end-to-end against real infrastructure, not just local mocks: a claim was
 posted ("A daily 10-minute walk reduces resting heart rate by 5% over 8 weeks"),
@@ -195,18 +204,25 @@ Wikipedia page; the validator correctly refused to trust the claim and returned
 supported by this source" — proving the contract weighs the stated argument
 against the real fetched content rather than taking it at face value.
 
-**Testnet Asimov**: `0xB0762453FB43D6B1e7AD442D5F2175aB8d887777`, deployed from a
-fresh `replicourt-asimov-deployer-2` account funded via testnet-faucet.genlayer.foundation
-(the original `replicourt-asimov-deployer`'s keystore password wasn't retained
-between sessions — its `0xb04b6f34…` address is now an orphaned, still-funded
-account with the old pre-`category` contract at `0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5`,
-no longer referenced by the frontend). `post_claim` and `challenge` were both
-submitted and reached real multi-validator consensus (`FINISHED_WITH_RETURN`, a
-real LLM-derived rationale about publication bias computed on-chain) — confirmed
-via `genlayer trace <txId>`, since real-testnet transaction receipts don't expose
-the same nested `data.*` shape studionet's do. The `category` field was
-separately live-verified against this same deployment: posted a claim with
-`category="medicine"` and confirmed `get_claim` round-trips it correctly.
+**Testnet Asimov**: `0x304253B50d2F8FC1f91aBa5DDEfe36EA26443434`, redeployed from
+the same `replicourt-asimov-deployer-2` account after the repeated-rounds
+redesign and live-verified. Three prior contract versions are now orphaned and
+no longer referenced by the frontend: the original deploy at
+`0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5` (pre-`category`), its successor at
+`0xB0762453FB43D6B1e7AD442D5F2175aB8d887777` (pre-audit-fixes), and
+`0xF17e675b3598C704ddAD3e8085B64Db8422eB56E` (pre-repeated-rounds). The
+original deployment's `post_claim`/`challenge` reached real multi-validator
+consensus (`FINISHED_WITH_RETURN`, a real LLM-derived rationale about
+publication bias computed on-chain) — confirmed via `genlayer trace <txId>`,
+since real-testnet transaction receipts don't expose the same nested `data.*`
+shape studionet's do.
+
+**A real testnet-Asimov RPC quirk hit during the audit redeploy, worth knowing if
+you deploy here yourself:** the public node occasionally returns `error -32005:
+transaction gas rate limit exceeded: node is at capacity` under load, and a
+deploy's own `waitForTransactionReceipt` can need several minutes (observed ~5)
+to reach `ACCEPTED` — `deploy/deployScript.ts`'s wait was bumped from 40 retries
+at 3s (120s total) to 100 retries at 5s (500s total) after hitting this for real.
 
 One thing worth knowing if you deploy here yourself: **unlike studio.genlayer.com,
 real testnet transactions don't auto-finalize.** After consensus, a transaction sits
@@ -255,17 +271,17 @@ below for why.
 | Method | Signature | What it does |
 | --- | --- | --- |
 | `post_claim` | `(claim_id, description, effect_size_bps, study_design, source_url, category) -> None` | Stakes the sent GEN on a new claim. Runs a deterministic `strict_eq` check that `source_url` actually resolves before accepting. `category` is free text (blank falls back to `"uncategorized"`); the frontend suggests a fixed list so registry filtering has a stable set to group by. |
-| `challenge` | `(challenge_id, claim_id, counter_refs, evidence_description, mode) -> None` | Stakes the sent GEN against a claim. `mode` is `"comparative"` or `"non_comparative"`. Fetches every URL in `counter_refs` live, resolves via the matching Equivalence Principle, and settles stakes in the same call. |
-| `escalate` | `(challenge_id) -> None` | Stakes an extra bond to re-resolve an already-resolved challenge under a stricter tolerance and a larger (9 vs. 5) validator panel. Does not reverse the original settlement. |
+| `challenge` | `(challenge_id, claim_id, counter_refs, evidence_description, mode) -> None` | Stakes the sent GEN against a claim (must be nonzero). `mode` is `"comparative"` or `"non_comparative"`. `counter_refs` is capped at 5 URLs. Fetches every URL live, resolves via the matching Equivalence Principle, and settles stakes in the same call. **Can be called repeatedly** against the same claim — there is no terminal lock, see "Repeated challenge rounds" below. |
+| `escalate` | `(challenge_id) -> None` | Pays a bond to re-resolve a challenge under a stricter tolerance and a larger (9 vs. 5) validator panel. Only the **most recent** challenge round on a claim can be escalated. Does not reverse the original settlement's stake payout — the bond is spam-prevention, not a bet, and is refunded to the caller once resolution completes. |
 
 **Views**
 
 | Method | Returns |
 | --- | --- |
-| `get_claim(claim_id)` | A single claim's current state (description, effect size, confidence, stake, poster). |
+| `get_claim(claim_id)` | A single claim's current state (description, effect size, confidence, stake, poster, `round_count`). |
 | `get_all_claims()` | Every claim in the registry. |
-| `get_challenges_for_claim(claim_id)` | Every challenge (resolved or escalated) against a claim, in posting order. |
-| `get_evidence_trail(claim_id)` | The full timestamped evidence trail used to drive the confidence chart. |
+| `get_challenges_for_claim(claim_id)` | Every challenge round against a claim (one per `challenge()` call — can be more than one), in posting order, each carrying its own `round` number. |
+| `get_evidence_trail(claim_id)` | The full timestamped evidence trail used to drive the confidence chart, one entry per round (plus one more per escalation), each carrying `round`. |
 
 ## Design decisions that diverge from the illustrative spec skeleton
 
@@ -312,9 +328,15 @@ against the real, current GenLayer docs and SDK:
   (3.0pp vs. the normal 8.0pp), and a re-recorded evidence event. It
   deliberately does **not** reverse stakes already settled by the original
   `challenge()` call — a full re-settlement flow was out of scope for this
-  MVP. The UI's Escalation page visualizes this as an expanding validator
-  panel (5 → 9 dots) to represent the concept, and is honest in its own
-  copy about what "escalated" means here.
+  MVP. The bond is refunded to the caller once resolution completes (an
+  audit fix — see below; it was previously collected and never used for
+  anything). The UI's Escalation page visualizes this as an expanding
+  validator panel (5 → 9 dots) to represent the concept, discloses the
+  no-reversal property before the user pays, and is honest in its own copy
+  about what "escalated" means here. Since a claim can now be challenged
+  repeatedly (below), `escalate()` only allows escalating the **most recent**
+  round — escalating an older one would corrupt the confidence trajectory
+  later rounds already built on top of.
 
 ## Two real GenVM SDK bugs/quirks found and worked around while building this
 
@@ -330,6 +352,159 @@ against the real, current GenLayer docs and SDK:
    Test mocks use integer `delta_pct` values; the contract's own parsing
    (`float(str(raw))`) handles both ints and floats fine at runtime.
 
+## Audit fixes
+
+An independent audit of this project (re-reading every file fresh against the
+requirements, not trusting prior claims) found and every item below was fixed,
+verified, and redeployed — not just patched and assumed to work:
+
+- **`escalate()`'s bond was collected and never used** — refunded to the
+  caller now instead of sitting in the contract with no defined purpose.
+  Live-verified on studionet by checking the contract's own balance before and
+  after a real escalate() call matched the exact expected math (not just "the
+  call didn't revert") — this also surfaced a real, separate finding: even
+  studionet's deferred (`on="finalized"`) payouts need a few seconds past
+  `ACCEPTED` before they actually land, not just testnet Asimov.
+- **The confidence chart double-counted an escalated challenge's delta**,
+  since the contract subtracts the original delta before applying the
+  escalated one (so both events staying in the evidence trail summed wrong).
+  Fixed to mirror the contract's own subtract-then-add math exactly, verified
+  against the exact numbers in `test_escalate_re_resolves_and_updates_evidence_trail`,
+  and the chart's final point is now always forced to match the authoritative
+  `confidence_bps` shown in the gauge next to it, so the two can never
+  visibly disagree even if the historical reconstruction is ever imperfect.
+- **The embeddable badge function had a stale, retired contract address for
+  testnet Asimov** — every badge for that network 404'd in production. Fixed,
+  and the two addresses now live in one shared `contractAddresses.ts` that
+  both the app and the Netlify Function import, instead of duplicated
+  literals that can drift apart again.
+- **`challenge()` had no cap on `counter_refs`** — an unbounded submission
+  forces every validator to fetch every URL, inflating consensus cost/time
+  with no limit. Capped at 5, contract-side and client-side.
+- **`challenge()`'s zero-stake guard was implicit** (relied on the ratio
+  check flooring to a nonzero minimum) rather than explicit like
+  `post_claim`'s — added the same explicit check.
+- **Checks-effects-interactions ordering**: `challenge()` set the
+  re-challenge guard (`claim.status = "resolved"`) *after* the external
+  payout call, not before. Reordered — defensive regardless of whether
+  GenVM's async message model actually permits synchronous re-entry.
+- **No global error boundary** — a render-time exception anywhere crashed to
+  a blank white screen. Added one.
+- **No loading indicator during initial boot** — the lazy-loaded ~1.6MB
+  wallet bundle showed nothing at all while loading. Added a spinner.
+- **Silent data loss**: `evidence_description` was truncated to 1000 chars
+  server-side with no client-side warning. Added a `maxLength` + live
+  character counter.
+- **No client-side guard against 0-value stakes/bonds** in Post Claim,
+  Challenge, and Escalate — each wasted a wallet-signing round trip before
+  reverting on-chain. Added upfront validation to all three.
+- **Escalation never disclosed that it doesn't reverse the original stake
+  payout** before the user pays a bond. Added explicit copy.
+- **The notifications dropdown had no click-outside-to-close handler**
+  (inconsistent with the network switcher, which has one). Added.
+- **The embeddable badge silently rendered broken in local `vite dev`**
+  (Netlify Functions don't run there) with no explanation. Added a dev-mode
+  notice.
+- Removed dead code: `Claim["status"]` included `"under_challenge"`, which
+  the contract never actually sets.
+- Fixed `badge.mts` collapsing every failure (RPC down, bad ID, network
+  error) into one generic "claim not found" — now distinguishes a real
+  missing claim (404, `[EXPECTED] unknown claim`) from a transient failure
+  (503, shorter cache).
+- Fixed `deployScript.ts` silently deploying from a fresh unfunded account on
+  *any* chain (including real testnets) when no keystore was given — now
+  throws a clear error for anything other than localnet/studionet. Also
+  bumped its deploy-confirmation timeout after hitting a real ~5-minute
+  testnet Asimov confirmation delay during this very redeploy.
+- Minor: an oxlint-flagged `Date.now()` call during render, a missing
+  `.catch()` on a clipboard write, `aria-hidden` on the landing page's
+  decorative scrolling ticker, and slightly stronger (timestamp + random
+  suffix) client-generated IDs to reduce an already-rare collision window.
+
+Two items from the audit were considered and deliberately left as-is:
+`GenLayerClient<any>`/`useAppKitProvider<any>` typing (tightening it risks
+breaking the generic across two differently-shaped chain configs for a purely
+cosmetic type-safety gain), and the registry/leaderboard/dashboard/
+notifications N+1 read pattern (a real scaling limit, but fixing it needs a
+new contract view — see "Explicitly deferred").
+
+## Repeated challenge rounds
+
+A GenLayer Foundation Portal steward reviewed the submission and flagged two
+concrete gaps: **"each claim closes after one challenge, so the continuously
+updating registry is not implemented, and a newly deployed address is not
+consumed by the frontend."** Both were real, verified findings, not just
+feedback to argue with:
+
+- **`challenge()` permanently locked every claim after one round.** Confirmed
+  in the code: it rejected any call against a claim whose `status ==
+  "resolved"`, and unconditionally set that status at the end of every
+  challenge. Fixed by making `claim.stake` a **persistent backing pool** that
+  evolves across rounds instead of being fully paid out once:
+  - **Challenger wins a round**: paid `challenger.stake + 80%*claim.stake`
+    (same ratio as before). `claim.stake` is reduced by that 80% — the
+    leftover 20% simply remains as `claim.stake` going forward (shrinks each
+    loss, isn't swept anywhere), so the claim stays challengeable at whatever
+    backing remains.
+  - **Claim wins a round**: the poster is paid `80%*challenger.stake`
+    **only** — `claim.stake` is left untouched, not paid out. This is a
+    deliberate change from the pre-existing one-shot model (where the
+    poster's whole stake returned to them on every win): posting a claim is
+    now an ongoing stake commitment for as long as it's listed, since there's
+    no mechanism to replenish `claim.stake` otherwise once repeated rounds
+    are allowed.
+  - `min_stake` per round is `max(MIN_ABSOLUTE_CHALLENGE_STAKE_WEI,
+    claim.stake * CHALLENGE_MIN_RATIO_BPS // CONFIDENCE_SCALE)` — the
+    absolute floor exists because a claim whose pool has eroded toward 0
+    after repeated losses would otherwise let the ratio-based minimum
+    collapse too, decoupling the anti-spam guard from its purpose (cheap
+    repeated LLM-consensus rounds are a real validator-cost DoS vector even
+    once there's nothing left in the pool to actually extract).
+  - No cap on round count — the absolute-stake floor plus real per-round
+    LLM-consensus cost is the practical throttle, not an artificial terminal
+    state, since a hard cap would just reintroduce the same "closes forever"
+    problem the steward flagged.
+  - This design was **not** implemented on the first draft — a Plan agent
+    was used specifically to stress-test it before writing any code, and
+    caught a real self-contradiction (the first draft's claim-wins payout
+    both "returned the poster's stake" and "kept it as backing pool," which
+    can't both be true) and a second real bug: `escalate()`'s confidence
+    recovery (`prior_conf = claim.confidence_bps - ch.delta_bps`) only holds
+    if the escalated challenge was the *last* thing to touch
+    `confidence_bps` — with repeated rounds now possible, escalating an
+    older round while later rounds had already stacked deltas on top would
+    corrupt the whole trajectory. Fixed by restricting `escalate()` to only
+    the most recent round (`Claim.round_count` / `Challenge.round` were added
+    specifically to make this checkable).
+  - Live-verified end-to-end on studionet: a claim was challenged twice in a
+    row, `round_count` went `0 → 1 → 2`, and confidence accumulated correctly
+    across both rounds (`5000 → 5000 → 5200` bps) — this is the literal
+    "continuously updating" proof.
+- **A fresh deploy's address never reached the running frontend.**
+  `deploy/deployScript.ts` wrote `VITE_CONTRACT_ADDRESS` into
+  `frontend/.env.local`, but nothing in the app ever read that variable —
+  the actual source of truth, `frontend/src/lib/contractAddresses.ts`
+  (introduced in the audit-fix pass above to stop the studionet/testnetAsimov
+  addresses from being duplicated in two places), was hardcoded and manually
+  edited after every deploy. Fixed: the deploy script now writes the deployed
+  address directly into `contractAddresses.ts` itself, for every chain the
+  frontend's network switcher exposes — confirmed by construction on the
+  redeploys that produced the addresses at the top of this README, with zero
+  manual editing involved.
+- **The integration test was stale against current method signatures.**
+  `tests/integration/test_full_flow.py` called `post_claim` with 5 args
+  (missing `category`) and `challenge` with 4 (missing
+  `evidence_description`) — both added in earlier sessions. Fixed, and
+  extended to actually exercise a second challenge round against the same
+  claim as the direct test of the "continuously updating" property.
+- Two frontend files silently relied on the same "one challenge per claim"
+  assumption without the steward ever mentioning them —
+  `Leaderboard.tsx` and `NotificationsBell.tsx` both only looked at
+  `challenges[0]`. Fixed to iterate every round. `EscalationPanel.tsx` now
+  only offers the Escalate action on a claim's latest round, matching the
+  new contract guard, instead of letting a user hit an on-chain revert on an
+  older one.
+
 ## Testing
 
 ```bash
@@ -340,10 +515,14 @@ uvx --from genvm-linter genvm-lint check contracts/replicourt.py
 pytest tests/direct/ -v
 ```
 
-25 direct-mode tests cover: claim posting + source-reachability + category
+31 direct-mode tests cover: claim posting + source-reachability + category
 defaulting, both EP modes'
 win/loss decisions, stake-ratio enforcement, the challenger-win-threshold
-boundary, escalation, and LLM-response parsing/resilience (key aliasing, range
+boundary, escalation (including the bond-refund code path and the
+latest-round-only guard), repeated challenge rounds against the same claim
+(including the exact stake-pool-shrinking math across consecutive challenger
+wins), the `counter_refs`/zero-stake/absolute-stake-floor guards, and
+LLM-response parsing/resilience (key aliasing, range
 clamping, markdown-fence/trailing-comma cleanup).
 
 **Known direct-mode coverage gap** (documented, not silently skipped): GenVM's

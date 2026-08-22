@@ -1,5 +1,6 @@
 import { defineChain } from "@reown/appkit/networks";
 import * as glChains from "genlayer-js/chains";
+import { CONTRACT_ADDRESSES } from "./contractAddresses";
 
 export type NetworkId = "studionet" | "testnetAsimov";
 
@@ -38,7 +39,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     id: "studionet",
     label: "Studionet",
     glChain: glChains.studionet,
-    contractAddress: "0x62bb3DF3DC9a0F176f601460509a1DAb4cC0fdB0",
+    contractAddress: CONTRACT_ADDRESSES.studionet,
     explorerTxUrl: (hash) => `https://genlayer-explorer.vercel.app/tx/${hash}`,
     gasless: true,
   },
@@ -46,7 +47,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     id: "testnetAsimov",
     label: "Testnet Asimov",
     glChain: glChains.testnetAsimov,
-    contractAddress: "0xB0762453FB43D6B1e7AD442D5F2175aB8d887777",
+    contractAddress: CONTRACT_ADDRESSES.testnetAsimov,
     explorerTxUrl: (hash) => `https://explorer-asimov.genlayer.com/tx/${hash}`,
     faucetUrl: "https://testnet-faucet.genlayer.foundation",
     supportsAppeal: true,
