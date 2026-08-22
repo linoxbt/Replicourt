@@ -35,16 +35,24 @@ spec's illustrative skeleton, which is stale on several points):
   real escalation is the protocol's transaction-level appeal flow, not a
   contract method. escalate() here is a defensible contract-level
   approximation: an extra bond, a stricter numeric tolerance, and a
-  re-recorded evidence event. It revises the recorded confidence and evidence
-  trail; it deliberately does NOT reverse stakes already settled by the
-  original challenge() call — a full re-settlement flow is out of scope for
-  this hackathon MVP. The escalation bond is spam-prevention, not a bet — since
-  there's no re-settlement to fold it into, it's refunded to the escalator once
-  resolution completes (see the end of escalate()) rather than left stuck.
-  escalate() only ever operates on the MOST RECENT challenge for a claim — its
-  confidence-recovery math (prior_conf = claim.confidence_bps - ch.delta_bps)
-  only holds if ch was the last thing to touch confidence_bps, which repeated
-  challenge rounds (below) would otherwise violate.
+  re-recorded evidence event. It revises the recorded confidence, winner
+  status, and evidence trail together and keeps them mutually consistent: if
+  the re-derived delta flips which side wins, escalate() makes a corrective
+  payout to the newly-determined winner rather than leaving status/payout
+  contradicting each other. Funds already paid to an external address on the
+  original resolution can't be clawed back on-chain, so this is a forward
+  correction, not a literal reversal — funded from claim.stake (still fully
+  intact) when the flip is claim-wins -> challenger-wins, or from the
+  escalation bond, capped at what's escrowed, when the flip is
+  challenger-wins -> claim-wins (the challenger already walked away with
+  ch.stake + bonus, so there's no other pool left for that direction). The
+  escalation bond therefore doubles as a corrective-payout source, not pure
+  spam-prevention — whatever isn't consumed by a correction is refunded to
+  the escalator. escalate() only ever operates on the MOST RECENT challenge
+  for a claim; its confidence-recovery baseline (confidence_before_bps) is
+  captured directly on the Challenge at challenge()-time rather than
+  reconstructed by subtraction, so it stays exact even across clamping at
+  0/CONFIDENCE_SCALE.
 - A claim can be challenged repeatedly ("rounds"), not just once — this is
   the actual "continuously-updating registry" the product is about, and the
   original one-shot-then-permanently-"resolved" design didn't implement it.
@@ -132,6 +140,7 @@ class Challenge:
     rationale: str
     escalated: bool
     round: u32              # which round of this claim's history this challenge is (1-indexed)
+    confidence_before_bps: u32  # claim.confidence_bps immediately before this round's delta
     created_at: u64
     resolved_at: u64
 
@@ -276,7 +285,18 @@ Return ONLY JSON: {{"delta_pct": <number -100..100>, "rationale": "<= 400 chars"
             # must converge within an explicit percentage-point tolerance
             # (expressed in basis points here since deltas are ints, see above).
             tolerance_bps = int(round(tolerance_pct * 100))
-            return abs(mine["delta_bps"] - leaders_res.calldata["delta_bps"]) <= tolerance_bps
+            their_delta = leaders_res.calldata["delta_bps"]
+            close_enough = abs(mine["delta_bps"] - their_delta) <= tolerance_bps
+            # The tolerance band (800bps normal / 300bps escalated) is wider than
+            # CHALLENGER_WIN_THRESHOLD_BPS's margin from zero (500bps), so two
+            # deltas can be numerically "close enough" yet fall on opposite sides
+            # of the payout boundary. Equivalence must hold on that boundary too,
+            # not just on raw numeric closeness — otherwise consensus can finalize
+            # a winner that a validator's own independent number would dispute.
+            same_side = (mine["delta_bps"] <= -CHALLENGER_WIN_THRESHOLD_BPS) == (
+                their_delta <= -CHALLENGER_WIN_THRESHOLD_BPS
+            )
+            return close_enough and same_side
 
         result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
         delta_bps = result["delta_bps"]
@@ -327,13 +347,16 @@ with no support in the source text.
             return
         _Payee(recipient).emit_transfer(value=amount, on="finalized")
 
+    def _winner_bonus(self, pool: u256) -> u256:
+        return pool * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
+
     def _settle(self, claim: Claim, ch: Challenge, challenger_wins: bool) -> None:
         if challenger_wins:
             # 80% of the claim's current backing pool goes to the challenger as a
             # bonus on top of their own stake back; the leftover 20% simply stays
             # as claim.stake going forward — it isn't consumed, it's what's left
             # to back the claim through its next round.
-            winner_bonus = claim.stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
+            winner_bonus = self._winner_bonus(claim.stake)
             payout = ch.stake + winner_bonus
             claim.stake = claim.stake - winner_bonus
             self._pay_out(ch.challenger, payout)
@@ -343,7 +366,7 @@ with no support in the source text.
             # one-shot model. Posting a claim is an ongoing stake commitment for
             # as long as it's listed; there's no mechanism to replenish
             # claim.stake otherwise once repeated challenge rounds are allowed.
-            winner_bonus = ch.stake * u256(SLASH_WINNER_SHARE_BPS) // u256(CONFIDENCE_SCALE)
+            winner_bonus = self._winner_bonus(ch.stake)
             self._pay_out(claim.poster, winner_bonus)
 
     # ---------------- writes ----------------
@@ -425,6 +448,9 @@ with no support in the source text.
                 claim.description, int(claim.effect_size_bps), refs_list, evidence_description
             )
 
+        confidence_before = claim.confidence_bps  # captured before this round's delta,
+        # so escalate() can later recover the exact pre-round baseline even if this
+        # update below clamps at 0/CONFIDENCE_SCALE (see confidence_before_bps).
         new_conf = max(0, min(CONFIDENCE_SCALE, int(claim.confidence_bps) + delta_bps))
         claim.confidence_bps = u32(new_conf)
 
@@ -441,7 +467,8 @@ with no support in the source text.
             counter_refs=refs_list, evidence_description=evidence_description, mode=mode,
             stake=stake, status=status,
             delta_bps=i32(delta_bps), rationale=rationale, escalated=False,
-            round=u32(this_round), created_at=now, resolved_at=now,
+            round=u32(this_round), confidence_before_bps=confidence_before,
+            created_at=now, resolved_at=now,
         )
         if claim_id not in self.challenge_ids_by_claim:
             self.challenge_ids_by_claim[claim_id] = []
@@ -498,17 +525,24 @@ with no support in the source text.
                 claim.description, int(claim.effect_size_bps), refs_list, ch.evidence_description
             )
 
-        # Recover the claim's confidence as it stood before this challenge's original
-        # delta, then apply the re-derived escalated delta. This is an approximation
-        # (it doesn't perfectly undo clamping at 0/10000) that is acceptable for the
-        # hackathon MVP given escalate() is a "Should", not "Must", requirement.
-        prior_conf = int(claim.confidence_bps) - int(ch.delta_bps)
-        claim.confidence_bps = u32(max(0, min(CONFIDENCE_SCALE, prior_conf + delta_bps)))
+        old_challenger_wins = ch.status == "resolved_challenge_wins"
+
+        # Recover the claim's confidence exactly as it stood before this round's
+        # original delta (stored directly on the Challenge at challenge()-time,
+        # so this is exact even if the original update clamped at 0/10000 — no
+        # lossy subtraction-based reconstruction), then apply the re-derived
+        # escalated delta.
+        claim.confidence_bps = u32(max(0, min(CONFIDENCE_SCALE, int(ch.confidence_before_bps) + delta_bps)))
+
+        new_challenger_wins = delta_bps <= -CHALLENGER_WIN_THRESHOLD_BPS
 
         ch.escalated = True
         ch.delta_bps = i32(delta_bps)
         ch.rationale = rationale
         ch.resolved_at = self._now()
+        # Winner status always tracks the currently-recorded delta_bps — never
+        # left stale from the pre-escalation resolution.
+        ch.status = "resolved_challenge_wins" if new_challenger_wins else "resolved_claim_wins"
 
         self.evidence_trail[ch.claim_id].append(EvidenceEvent(
             claim_id=ch.claim_id, challenge_id=challenge_id, delta_bps=i32(delta_bps),
@@ -517,12 +551,38 @@ with no support in the source text.
             round=ch.round, timestamp=self._now(),
         ))
 
+        # If escalation flips the outcome, make a corrective payout to the newly
+        # -determined winner so the payout is never left inconsistent with the
+        # status/confidence just recorded above (state before external payouts,
+        # same checks-effects-interactions ordering challenge() uses). Funds
+        # already sent to an external address on the original resolution can't
+        # be clawed back, so this is a forward correction, not a reversal.
+        refund = bond
+        if new_challenger_wins != old_challenger_wins:
+            if new_challenger_wins:
+                # claim-wins -> challenger-wins: the original claim-wins
+                # settlement never touched claim.stake, so it's fully intact —
+                # a legitimate source for the challenger's corrective bonus.
+                corrective = self._winner_bonus(claim.stake)
+                claim.stake = claim.stake - corrective
+                self._pay_out(ch.challenger, corrective)
+            else:
+                # challenger-wins -> claim-wins: the challenger already
+                # received ch.stake + bonus in full; there is no leftover pool
+                # from this round to draw a corrective payment to the poster
+                # from. Fund it from the escalation bond instead, capped at
+                # what's escrowed so this is always solvent. Any bond left
+                # over after the correction is refunded as before.
+                corrective = min(self._winner_bonus(ch.stake), bond)
+                refund = bond - corrective
+                self._pay_out(claim.poster, corrective)
+
         # The bond is spam-prevention (paying validators for a second consensus
-        # round has a real cost, so escalation isn't free to trigger), not a bet —
-        # escalate() doesn't re-settle the original stakes, so there's no pool for
-        # the bond to join. Refund it to the escalator once resolution completes,
-        # rather than letting it sit in the contract with no defined purpose.
-        self._pay_out(escalator, bond)
+        # round has a real cost) that doubles as a corrective-payout source when
+        # escalation flips a challenger-wins result to claim-wins (see above).
+        # Whatever isn't consumed by that correction is refunded to the
+        # escalator once resolution completes.
+        self._pay_out(escalator, refund)
 
     # ---------------- views ----------------
 

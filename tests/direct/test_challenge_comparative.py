@@ -101,6 +101,38 @@ def test_challenge_comparative_validator_disagrees_outside_tolerance(direct_vm, 
     assert agrees is False
 
 
+def test_challenge_comparative_validator_disagrees_across_win_threshold(direct_vm, direct_deploy, direct_alice, direct_bob):
+    """Two deltas can be numerically 'close enough' (within the +/-8pp
+    COMPARATIVE_TOLERANCE_PCT) yet fall on opposite sides of the -500bps
+    CHALLENGER_WIN_THRESHOLD_BPS payout boundary. The leader claims -450bps
+    (claim wins); the validator's own independent re-derivation (mocked here
+    via the challenge()'s LLM mock, which run_validator() re-invokes) lands
+    at -1000bps (challenger wins) -- a 550bps gap, within the 800bps default
+    tolerance. Equivalence must fail here even though the numbers are close,
+    since they disagree about who actually won.
+    """
+    contract = direct_deploy("contracts/replicourt.py")
+    _post_claim(contract, direct_vm, direct_alice, stake=10 * 10**18)
+    _mock_counter_evidence(direct_vm)
+
+    direct_vm.mock_llm(r".*", json.dumps({
+        "delta_pct": -10,
+        "rationale": "Meaningful contradicting evidence.",
+        "source_credibility": "peer-reviewed",
+    }))
+
+    direct_vm.sender = direct_bob
+    direct_vm.value = 3 * 10**18
+    contract.challenge("challenge-1", "claim-1", [COUNTER_URL], "Counter-evidence description for testing.", "comparative")
+
+    agrees = direct_vm.run_validator(leader_result={
+        "delta_bps": -450,
+        "rationale": "Weak effect only.",
+        "source_credibility": "preprint",
+    })
+    assert agrees is False
+
+
 def test_challenge_min_stake_enforced(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = direct_deploy("contracts/replicourt.py")
     _post_claim(contract, direct_vm, direct_alice, stake=10 * 10**18)

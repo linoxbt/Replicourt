@@ -36,6 +36,7 @@ below for the actual on-chain proof.
 - [Two real GenVM SDK bugs/quirks found and worked around while building this](#two-real-genvm-sdk-bugsquirks-found-and-worked-around-while-building-this)
 - [Audit fixes](#audit-fixes)
 - [Repeated challenge rounds](#repeated-challenge-rounds)
+- [Settlement consistency (second steward round)](#settlement-consistency-second-steward-round)
 - [Getting started](#getting-started)
 - [Testing](#testing)
 - [Tech stack](#tech-stack)
@@ -157,9 +158,13 @@ instead of breaking.
 
 ## Live deployment
 
-**Studionet** (studio.genlayer.com): `0x89CF9b74DC2F8E17aF26013683E0D953f227ad4b`
+**Studionet** (studio.genlayer.com): `0xE3c97A5D4dB7Ed8BEBfBb04e84A5169aA2e43312`
 
-Redeployed after a GenLayer Foundation Portal steward review (see "Repeated
+Redeployed after a second steward review (see "Settlement consistency" below)
+fixed comparative-validator boundary agreement and escalation's
+confidence/status/payout reconciliation — live-verified end-to-end: post_claim
+→ challenge → escalate all completed without reverting on the fixed contract.
+Before that, it was redeployed after a first steward review (see "Repeated
 challenge rounds" below) added **repeated challenge rounds** — live-verified: a
 claim was challenged twice in a row (round 1, round 2), `round_count` correctly
 went 0→1→2, and confidence accumulated across both rounds (`5000 → 5000 → 5200`
@@ -204,13 +209,14 @@ Wikipedia page; the validator correctly refused to trust the claim and returned
 supported by this source" — proving the contract weighs the stated argument
 against the real fetched content rather than taking it at face value.
 
-**Testnet Asimov**: `0x304253B50d2F8FC1f91aBa5DDEfe36EA26443434`, redeployed from
-the same `replicourt-asimov-deployer-2` account after the repeated-rounds
-redesign and live-verified. Three prior contract versions are now orphaned and
-no longer referenced by the frontend: the original deploy at
+**Testnet Asimov**: `0xC576bd60228384Bd8F7345Ff106fb80BA6Ec8e70`, redeployed
+from the same `replicourt-asimov-deployer-2` account after the settlement-
+consistency fixes. Four prior contract versions are now orphaned and no
+longer referenced by the frontend: the original deploy at
 `0xf6a56C9ec97E80479c0e430A10FE47663bBA61D5` (pre-`category`), its successor at
-`0xB0762453FB43D6B1e7AD442D5F2175aB8d887777` (pre-audit-fixes), and
-`0xF17e675b3598C704ddAD3e8085B64Db8422eB56E` (pre-repeated-rounds). The
+`0xB0762453FB43D6B1e7AD442D5F2175aB8d887777` (pre-audit-fixes),
+`0xF17e675b3598C704ddAD3e8085B64Db8422eB56E` (pre-repeated-rounds), and
+`0x304253B50d2F8FC1f91aBa5DDEfe36EA26443434` (pre-settlement-consistency). The
 original deployment's `post_claim`/`challenge` reached real multi-validator
 consensus (`FINISHED_WITH_RETURN`, a real LLM-derived rationale about
 publication bias computed on-chain) — confirmed via `genlayer trace <txId>`,
@@ -272,7 +278,7 @@ below for why.
 | --- | --- | --- |
 | `post_claim` | `(claim_id, description, effect_size_bps, study_design, source_url, category) -> None` | Stakes the sent GEN on a new claim. Runs a deterministic `strict_eq` check that `source_url` actually resolves before accepting. `category` is free text (blank falls back to `"uncategorized"`); the frontend suggests a fixed list so registry filtering has a stable set to group by. |
 | `challenge` | `(challenge_id, claim_id, counter_refs, evidence_description, mode) -> None` | Stakes the sent GEN against a claim (must be nonzero). `mode` is `"comparative"` or `"non_comparative"`. `counter_refs` is capped at 5 URLs. Fetches every URL live, resolves via the matching Equivalence Principle, and settles stakes in the same call. **Can be called repeatedly** against the same claim — there is no terminal lock, see "Repeated challenge rounds" below. |
-| `escalate` | `(challenge_id) -> None` | Pays a bond to re-resolve a challenge under a stricter tolerance and a larger (9 vs. 5) validator panel. Only the **most recent** challenge round on a claim can be escalated. Does not reverse the original settlement's stake payout — the bond is spam-prevention, not a bet, and is refunded to the caller once resolution completes. |
+| `escalate` | `(challenge_id) -> None` | Pays a bond to re-resolve a challenge under a stricter tolerance and a larger (9 vs. 5) validator panel. Only the **most recent** challenge round on a claim can be escalated. Confidence, winner status, and payout are kept consistent with each other: if the re-derived result flips the winner, a corrective payout goes to the newly-determined winner (from `claim.stake` or the escalation bond, depending on direction — see "Settlement consistency" below) instead of leaving the stale original payout standing. Whatever bond isn't consumed by a correction is refunded to the caller. |
 
 **Views**
 
@@ -325,18 +331,17 @@ against the real, current GenLayer docs and SDK:
   (`genlayer appeal <hash>`), which operates on a resolved transaction's
   finality window, not on arbitrary contract state. `escalate()` here is a
   contract-level stand-in: an extra bond, a stricter numeric tolerance
-  (3.0pp vs. the normal 8.0pp), and a re-recorded evidence event. It
-  deliberately does **not** reverse stakes already settled by the original
-  `challenge()` call — a full re-settlement flow was out of scope for this
-  MVP. The bond is refunded to the caller once resolution completes (an
-  audit fix — see below; it was previously collected and never used for
-  anything). The UI's Escalation page visualizes this as an expanding
-  validator panel (5 → 9 dots) to represent the concept, discloses the
-  no-reversal property before the user pays, and is honest in its own copy
-  about what "escalated" means here. Since a claim can now be challenged
-  repeatedly (below), `escalate()` only allows escalating the **most recent**
-  round — escalating an older one would corrupt the confidence trajectory
-  later rounds already built on top of.
+  (3.0pp vs. the normal 8.0pp), and a re-recorded evidence event. It keeps
+  confidence, winner status, and payout mutually consistent — see
+  "Settlement consistency" below for how, since a first version of this that
+  simply revised confidence without touching status/payout was flagged and
+  fixed. The UI's Escalation page visualizes this as an expanding validator
+  panel (5 → 9 dots) to represent the concept, and its copy is honest about
+  when the bond is fully refunded vs. partially redirected as a corrective
+  payment. Since a claim can now be challenged repeatedly (below),
+  `escalate()` only allows escalating the **most recent** round — escalating
+  an older one would corrupt the confidence trajectory later rounds already
+  built on top of.
 
 ## Two real GenVM SDK bugs/quirks found and worked around while building this
 
@@ -505,6 +510,69 @@ feedback to argue with:
   new contract guard, instead of letting a user hit an on-chain revert on an
   older one.
 
+## Settlement consistency (second steward round)
+
+After the repeated-challenge-rounds fix above shipped, the steward flagged
+one more concrete settlement issue: **"make comparative validators agree on
+the same side of the payout boundary, and make escalation reconcile
+confidence, winner status, and payout consistently, including clamped
+rounds."** Two real, verified bugs, both in settlement logic that had never
+been exercised by repeated challenge rounds until the previous fix made them
+reachable:
+
+- **Comparative validators could "agree" while disagreeing about who won.**
+  `_resolve_comparative`'s `validator_fn` only checked numeric closeness
+  between the leader's `delta_bps` and a validator's own independently
+  re-derived number (`abs(mine - leader) <= tolerance_bps`, 800bps normally /
+  300bps escalated). The win/lose decision, `challenger_wins = delta_bps <=
+  -CHALLENGER_WIN_THRESHOLD_BPS` (500bps), is only checked afterward, on the
+  single leader-accepted number. Because both tolerance bands are wider than
+  the threshold's margin from zero, a validator's own number could land on
+  the *opposite side* of the payout boundary from the leader's — e.g.
+  leader=-450 (claim wins), validator's own=-950 (challenger wins), a 500bps
+  gap, within the 800bps tolerance — and consensus would still accept the
+  leader's result, since it only measures numeric closeness, never agreement
+  on which side of the boundary the number falls. Fixed by adding a
+  same-side-of-threshold check to `validator_fn` alongside the existing
+  tolerance check, so equivalence now requires both: close enough, *and* on
+  the same side of the payout boundary. Lives in the shared
+  `_resolve_comparative` function, so it covers both `challenge()`'s call and
+  `escalate()`'s call automatically — the escalated path isn't immune either
+  (two numbers within even a 300bps band can still straddle a fixed threshold
+  point).
+- **`escalate()` didn't reconcile confidence, status, and payout.** Three
+  compounding gaps:
+  - `prior_conf = claim.confidence_bps - ch.delta_bps` silently reconstructed
+    the wrong pre-round baseline whenever the original `challenge()` call's
+    confidence update had clamped at 0 or 10000 — the module docstring even
+    admitted this ("doesn't perfectly undo clamping"). Fixed at the root: the
+    `Challenge` record now stores `confidence_before_bps` directly, captured
+    at `challenge()`-time before that round's delta is applied, so recovery
+    is exact regardless of clamping.
+  - `ch.status` was set once in `challenge()` and never reassigned in
+    `escalate()`, even though `ch.delta_bps` gets overwritten with a value
+    that can flip which side of the win/lose threshold it falls on — status
+    could flatly contradict the currently-recorded delta. Fixed: `escalate()`
+    now recomputes the winner the same way `challenge()` does and reassigns
+    `ch.status` to match.
+  - The original settlement's payout was never revisited, so a flip in the
+    escalated result never moved any money. Funds already sent to an
+    external address can't be clawed back on-chain, so this had to be a
+    forward corrective payment, not a literal reversal: when escalation flips
+    claim-wins → challenger-wins, the correction is funded from `claim.stake`
+    (still fully intact, since the original claim-wins settlement never
+    touched it); when it flips challenger-wins → claim-wins, the challenger
+    already received their full stake + bonus, so there's no leftover pool
+    from that round to draw from — the correction is instead funded from the
+    escalation bond, capped at whatever's escrowed (always solvent, an
+    insufficient bond just means a partial correction, not a revert). The
+    escalation bond therefore now doubles as a corrective-payout source
+    rather than being pure spam-prevention; whatever isn't consumed by a
+    correction is still refunded as before.
+  - `EscalationPanel.tsx`'s copy was updated to match — it no longer claims
+    the bond is unconditionally refunded or that escalation can never affect
+    the original payout.
+
 ## Testing
 
 ```bash
@@ -515,15 +583,17 @@ uvx --from genvm-linter genvm-lint check contracts/replicourt.py
 pytest tests/direct/ -v
 ```
 
-31 direct-mode tests cover: claim posting + source-reachability + category
+35 direct-mode tests cover: claim posting + source-reachability + category
 defaulting, both EP modes'
 win/loss decisions, stake-ratio enforcement, the challenger-win-threshold
-boundary, escalation (including the bond-refund code path and the
-latest-round-only guard), repeated challenge rounds against the same claim
-(including the exact stake-pool-shrinking math across consecutive challenger
-wins), the `counter_refs`/zero-stake/absolute-stake-floor guards, and
-LLM-response parsing/resilience (key aliasing, range
-clamping, markdown-fence/trailing-comma cleanup).
+boundary, comparative-validator boundary agreement (numeric closeness *and*
+same-side-of-threshold), escalation (bond-refund/corrective-payout code
+paths, the latest-round-only guard, and confidence-baseline recovery across
+clamped rounds), repeated challenge rounds against the same claim (including
+the exact stake-pool-shrinking math across consecutive challenger wins), the
+`counter_refs`/zero-stake/absolute-stake-floor guards, and LLM-response
+parsing/resilience (key aliasing, range clamping, markdown-fence/trailing-
+comma cleanup).
 
 **Known direct-mode coverage gap** (documented, not silently skipped): GenVM's
 direct-mode test harness doesn't simulate cross-layer host calls — outbound

@@ -139,7 +139,7 @@ function ChallengeEscalationRow({
               style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
             />
             <span className="text-xs" style={{ color: "var(--color-fg-muted)" }}>
-              GEN bond (refunded once resolved)
+              GEN bond (refunded, unless escalation flips the outcome — see below)
             </span>
             <button
               type="button"
@@ -152,9 +152,11 @@ function ChallengeEscalationRow({
             </button>
           </div>
           <p className="mt-1.5 text-xs" style={{ color: "var(--color-fg-subtle)" }}>
-            Escalation revises the recorded confidence and evidence trail but does <strong>not</strong>{" "}
-            reverse the stake payout from this challenge's original resolution — whoever won that
-            keeps it, even if the escalated re-derivation lands differently.
+            Escalation revises the recorded confidence, evidence trail, and winner status together.
+            If the re-derived result flips who won, a corrective payout goes to the newly-determined
+            winner (funded from the claim's stake pool, or from this bond if the flip favors the
+            claim) — the original transfer can't be clawed back, so this is a forward correction, not
+            a reversal, and an insufficient bond only partially corrects the payout instead of failing.
           </p>
         </div>
       )}
