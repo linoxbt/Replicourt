@@ -2,6 +2,7 @@ import { lazy, Suspense, useMemo, type ReactNode } from "react";
 import { createClient } from "genlayer-js";
 import { NETWORKS, NETWORK_LIST } from "./networks";
 import { REOWN_ENABLED } from "./reownConfig";
+import { lazyRetry } from "./lazyRetry";
 import type { ApiCtx } from "./contractApi";
 import {
   ReplicourtContext,
@@ -20,7 +21,7 @@ export { useReplicourt } from "./replicourtContext";
 // shell renders immediately via ReplicourtProviderNoWallet below (this
 // Suspense boundary's fallback) while the wallet chunk loads in the
 // background, then swaps in once ready.
-const LazyWalletProvider = lazy(() => import("./WalletProvider"));
+const LazyWalletProvider = lazy(() => lazyRetry(() => import("./WalletProvider")));
 
 // Stub provider used before the wallet chunk has loaded, and permanently
 // when VITE_REOWN_PROJECT_ID isn't set — reads still work (no wallet
