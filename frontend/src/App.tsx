@@ -11,6 +11,7 @@ import { ClaimDetail } from "./pages/ClaimDetail";
 import { ChallengeFlow } from "./pages/ChallengeFlow";
 import { Escalation } from "./pages/Escalation";
 import { Leaderboard } from "./pages/Leaderboard";
+import { NotFound } from "./pages/NotFound";
 
 // The landing page is a full-bleed marketing page, not a dashboard screen —
 // it gets a slim dark top bar instead of the app's sidebar chrome.
@@ -77,6 +78,7 @@ export default function App() {
             <Route path="/claims/:claimId" element={<ClaimDetail />} />
             <Route path="/claims/:claimId/challenge" element={<ChallengeFlow />} />
             <Route path="/claims/:claimId/escalate" element={<Escalation />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
         <footer

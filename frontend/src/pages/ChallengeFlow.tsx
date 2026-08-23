@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import type { Claim } from "../lib/contractApi";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import { recordTx } from "../lib/txLog";
+import { friendlyLoadError } from "../lib/format";
 
 const inputClass =
   "w-full border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent-fg)]";
@@ -26,6 +28,25 @@ export function ChallengeFlow() {
   const [stake, setStake] = useState("0.5");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claim, setClaim] = useState<Claim | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadClaim = useCallback(() => {
+    if (!claimId) return () => {};
+    let cancelled = false;
+    setClaim(null);
+    setLoadError(null);
+    api
+      .getClaim(claimId)
+      .then((c) => !cancelled && setClaim(c))
+      .catch((e) => !cancelled && setLoadError(friendlyLoadError("this claim", e)));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claimId, api]);
+
+  useEffect(() => loadClaim(), [loadClaim]);
 
   function updateRef(i: number, value: string) {
     setRefs((prev) => prev.map((r, idx) => (idx === i ? value : r)));
@@ -59,10 +80,36 @@ export function ChallengeFlow() {
     }
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-6">
+        <div
+          className="border p-4 text-sm"
+          style={{ borderColor: "var(--color-danger-fg)", color: "var(--color-danger-fg)" }}
+        >
+          {loadError}
+        </div>
+      </div>
+    );
+  }
+
+  if (!claim) {
+    return (
+      <div className="mx-auto max-w-xl px-4 py-6">
+        <p className="text-sm" style={{ color: "var(--color-fg-muted)" }}>
+          Loading claim…
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-xl px-4 py-6">
       <h1 className="text-lg font-semibold">Challenge this claim</h1>
-      <p className="mt-0.5 text-sm" style={{ color: "var(--color-fg-muted)" }}>
+      <p className="mt-2 border-l-2 pl-3 text-sm" style={{ borderColor: "var(--color-border-default)", color: "var(--color-fg-default)" }}>
+        {claim.description}
+      </p>
+      <p className="mt-2 text-sm" style={{ color: "var(--color-fg-muted)" }}>
         Submit counter-evidence and a stake. The Leader validator fetches your sources live and
         re-derives the confidence delta; other validators independently verify it.
       </p>

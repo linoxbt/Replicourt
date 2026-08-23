@@ -31,6 +31,16 @@ export function formatTimestamp(unixSeconds: number): string {
   });
 }
 
+// Read-call failures (e.g. an unknown claim ID) surface raw SDK/RPC errors
+// like "Missing or invalid parameters... Version: viem@2.55.19" — not useful
+// to a user and not a business-logic message the contract authored on
+// purpose (unlike a write-call revert, which IS meant to be shown verbatim).
+// Log the real error for debugging, show a plain-language one instead.
+export function friendlyLoadError(subject: string, e: unknown): string {
+  console.error(`[RepliCourt] failed to load ${subject}:`, e);
+  return `Couldn't load ${subject}. It may not exist, or the network may be temporarily unavailable.`;
+}
+
 export function relativeTime(unixSeconds: number): string {
   const deltaSec = Math.round(Date.now() / 1000 - unixSeconds);
   const units: [number, string][] = [

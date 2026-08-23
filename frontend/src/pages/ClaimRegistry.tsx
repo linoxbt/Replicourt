@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { Claim } from "../lib/contractApi";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import { ClaimCard } from "../components/claims/ClaimCard";
-import { bpsToPercent } from "../lib/format";
+import { bpsToPercent, friendlyLoadError } from "../lib/format";
 
 type SortMode = "confident" | "contested";
 
@@ -35,7 +35,7 @@ export function ClaimRegistry() {
         );
         if (!cancelled) setChallengeCounts(Object.fromEntries(counts));
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load claims"));
+      .catch((e) => !cancelled && setError(friendlyLoadError("the claims registry", e)));
     return () => {
       cancelled = true;
     };

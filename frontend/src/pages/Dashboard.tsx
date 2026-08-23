@@ -4,7 +4,7 @@ import { useReplicourt } from "../lib/ReplicourtProvider";
 import type { Claim, Challenge } from "../lib/contractApi";
 import { ClaimCard } from "../components/claims/ClaimCard";
 import { StakeBadge } from "../components/common/StakeBadge";
-import { formatPercent, relativeTime, shortAddress } from "../lib/format";
+import { formatPercent, friendlyLoadError, relativeTime, shortAddress } from "../lib/format";
 
 interface ChallengeWithClaim extends Challenge {
   claimDescription: string;
@@ -42,7 +42,7 @@ export function Dashboard() {
         const mine = perClaimChallenges.flat().filter((ch) => sameAddress(ch.challenger, address));
         setMyChallenges(mine);
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load dashboard"));
+      .catch((e) => !cancelled && setError(friendlyLoadError("your dashboard data", e)));
 
     return () => {
       cancelled = true;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import type { Challenge, Claim } from "../lib/contractApi";
-import { shortAddress, weiToGen } from "../lib/format";
+import { friendlyLoadError, shortAddress, weiToGen } from "../lib/format";
 
 interface Row {
   address: string;
@@ -76,7 +76,7 @@ export function Leaderboard() {
 
         setRows(Array.from(table.values()).sort((a, b) => b.totalWins - a.totalWins || b.totalActions - a.totalActions));
       })
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Failed to load leaderboard"));
+      .catch((e) => !cancelled && setError(friendlyLoadError("the leaderboard", e)));
 
     return () => {
       cancelled = true;

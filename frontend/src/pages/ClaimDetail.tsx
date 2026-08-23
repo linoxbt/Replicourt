@@ -7,7 +7,7 @@ import { EvidenceTrail } from "../components/claim-detail/EvidenceTrail";
 import { ConfidenceGauge } from "../components/common/ConfidenceGauge";
 import { StakeBadge } from "../components/common/StakeBadge";
 import { FinalizePanel } from "../components/claim-detail/FinalizePanel";
-import { formatPercent, shortAddress } from "../lib/format";
+import { formatPercent, friendlyLoadError, shortAddress } from "../lib/format";
 
 export function ClaimDetail() {
   const { claimId } = useParams<{ claimId: string }>();
@@ -18,20 +18,23 @@ export function ClaimDetail() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!claimId) return;
+    if (!claimId) return () => {};
+    let cancelled = false;
     Promise.all([api.getClaim(claimId), api.getEvidenceTrail(claimId), api.getChallengesForClaim(claimId)])
       .then(([c, t, ch]) => {
+        if (cancelled) return;
         setClaim(c);
         setTrail(t);
         setChallenges(ch);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load claim"));
+      .catch((e) => !cancelled && setError(friendlyLoadError("this claim", e)));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimId, api]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => load(), [load]);
 
   if (error) {
     return (
