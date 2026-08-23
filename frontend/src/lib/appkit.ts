@@ -1,10 +1,7 @@
 import { createAppKit } from "@reown/appkit/react";
 import { EthersAdapter } from "@reown/appkit-adapter-ethers";
 import { REOWN_NETWORKS } from "./networks";
-
-const projectId = import.meta.env.VITE_REOWN_PROJECT_ID as string | undefined;
-
-export const REOWN_ENABLED = Boolean(projectId);
+import { REOWN_PROJECT_ID as projectId } from "./reownConfig";
 
 if (projectId) {
   createAppKit({

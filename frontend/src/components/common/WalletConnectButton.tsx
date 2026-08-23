@@ -1,11 +1,11 @@
-import { useAppKit } from "@reown/appkit/react";
 import { useReplicourt } from "../../lib/ReplicourtProvider";
+import { REOWN_ENABLED } from "../../lib/reownConfig";
 import { shortAddress } from "../../lib/format";
 
 export function WalletConnectButton() {
-  const { reownEnabled, isConnected, address } = useReplicourt();
+  const { isConnected, address, connect, openAccountView } = useReplicourt();
 
-  if (!reownEnabled) {
+  if (!REOWN_ENABLED) {
     return (
       <button
         type="button"
@@ -19,16 +19,10 @@ export function WalletConnectButton() {
     );
   }
 
-  return <ConnectedButton isConnected={isConnected} address={address} />;
-}
-
-function ConnectedButton({ isConnected, address }: { isConnected: boolean; address?: string }) {
-  const { open } = useAppKit();
-
   return (
     <button
       type="button"
-      onClick={() => open(isConnected ? { view: "Account" } : { view: "Connect" })}
+      onClick={() => (isConnected ? openAccountView() : connect())}
       className="flex items-center gap-1.5 border px-2.5 py-1.5 text-xs font-medium transition-colors"
       style={
         isConnected
