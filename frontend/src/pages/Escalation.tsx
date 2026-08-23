@@ -4,6 +4,7 @@ import type { Challenge, Claim } from "../lib/contractApi";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import { EscalationPanel } from "../components/escalation/EscalationPanel";
 import { friendlyLoadError } from "../lib/format";
+import { Spinner } from "../components/common/Spinner";
 
 export function Escalation() {
   const { claimId } = useParams<{ claimId: string }>();
@@ -44,15 +45,19 @@ export function Escalation() {
         >
           {error}
         </div>
-      ) : (
+      ) : claim ? (
         <>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-fg-muted)" }}>
-            {claim ? claim.description : "Loading…"}
+            {claim.description}
           </p>
           <div className="mt-5">
             <EscalationPanel challenges={challenges} onEscalated={load} />
           </div>
         </>
+      ) : (
+        <div className="mt-4">
+          <Spinner label="Loading…" />
+        </div>
       )}
     </div>
   );

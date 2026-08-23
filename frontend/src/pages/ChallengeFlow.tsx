@@ -4,6 +4,7 @@ import type { Claim } from "../lib/contractApi";
 import { useReplicourt } from "../lib/ReplicourtProvider";
 import { recordTx } from "../lib/txLog";
 import { friendlyLoadError } from "../lib/format";
+import { Spinner } from "../components/common/Spinner";
 
 const inputClass =
   "w-full border px-3 py-2 text-sm outline-none focus:border-[var(--color-accent-fg)]";
@@ -96,9 +97,7 @@ export function ChallengeFlow() {
   if (!claim) {
     return (
       <div className="mx-auto max-w-xl px-4 py-6">
-        <p className="text-sm" style={{ color: "var(--color-fg-muted)" }}>
-          Loading claim…
-        </p>
+        <Spinner label="Loading claim…" />
       </div>
     );
   }

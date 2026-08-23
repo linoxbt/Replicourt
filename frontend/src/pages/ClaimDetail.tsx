@@ -8,6 +8,7 @@ import { ConfidenceGauge } from "../components/common/ConfidenceGauge";
 import { StakeBadge } from "../components/common/StakeBadge";
 import { FinalizePanel } from "../components/claim-detail/FinalizePanel";
 import { formatPercent, friendlyLoadError, shortAddress } from "../lib/format";
+import { Spinner } from "../components/common/Spinner";
 
 export function ClaimDetail() {
   const { claimId } = useParams<{ claimId: string }>();
@@ -52,9 +53,7 @@ export function ClaimDetail() {
   if (!claim) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-6">
-        <p className="text-sm" style={{ color: "var(--color-fg-muted)" }}>
-          Loading claim…
-        </p>
+        <Spinner label="Loading claim…" />
       </div>
     );
   }
