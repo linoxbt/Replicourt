@@ -28,11 +28,29 @@ window.addEventListener('vite:preloadError', () => {
   window.location.reload()
 })
 
+// body's background is near-black under prefers-color-scheme: dark (see
+// index.css) from the instant the CSS loads — well before the JS bundle
+// finishes. An empty Suspense fallback during that window isn't "no loading
+// state," it's a solid black page with nothing on it at all, which reads as
+// completely broken rather than simply loading. This has to render
+// *something* visible for as long as AppRoot is in flight.
+function BootLoading() {
+  return (
+    <div className="flex min-h-full items-center justify-center">
+      <div
+        className="h-6 w-6 animate-spin rounded-full border-2 border-t-transparent"
+        style={{ borderColor: 'var(--color-accent-emphasis)', borderTopColor: 'transparent' }}
+        aria-label="Loading"
+      />
+    </div>
+  )
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <ErrorBoundary>
-        <Suspense fallback={null}>
+        <Suspense fallback={<BootLoading />}>
           <AppRoot />
         </Suspense>
       </ErrorBoundary>
