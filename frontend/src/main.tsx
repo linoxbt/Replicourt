@@ -6,6 +6,19 @@ import './index.css'
 
 const AppRoot = lazy(() => import('./AppRoot'))
 
+// A deploy replaces every hashed chunk file; a tab left open across one (or a
+// stale cached index.html) still references the old hash, so the lazy import
+// above 404s with "Failed to fetch dynamically imported module." Vite emits
+// this event for exactly that case — self-heal with one reload instead of
+// falling through to the ErrorBoundary's generic screen. Guarded so a
+// genuinely broken deploy (not just a stale chunk) reloads once, then falls
+// through to the ErrorBoundary's manual Reload button rather than looping.
+window.addEventListener('vite:preloadError', () => {
+  if (sessionStorage.getItem('rc-reloaded-once')) return
+  sessionStorage.setItem('rc-reloaded-once', '1')
+  window.location.reload()
+})
+
 function BootLoading() {
   return (
     <div className="flex min-h-full items-center justify-center">
