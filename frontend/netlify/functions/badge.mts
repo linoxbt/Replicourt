@@ -49,6 +49,28 @@ function errorBadge(message: string): string {
   return svgBadge("RepliCourt", message, "#6e6e6e");
 }
 
+// A contract-level revert (e.g. "[EXPECTED] unknown claim") never shows up in
+// error.message for a failed readContract call — viem's InvalidInputRpcError
+// wraps it as a generic "Missing or invalid parameters" message instead. The
+// actual revert text is base64-encoded inside error.cause.data.receipt.result
+// (confirmed against a real failing read, not guessed: decoding it yields the
+// exact "[EXPECTED] unknown claim" string the contract raises). Checking
+// e.message for "unknown claim" — the previous approach — could never match,
+// since that substring never appears there.
+function extractRevertReason(e: unknown): string | null {
+  const receipt = (e as { cause?: { data?: { receipt?: unknown } } })?.cause?.data?.receipt as
+    | { execution_result?: string; result?: string }
+    | undefined;
+  if (!receipt || receipt.execution_result !== "ERROR" || typeof receipt.result !== "string") {
+    return null;
+  }
+  try {
+    return Buffer.from(receipt.result, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
 export default async (req: Request) => {
   const url = new URL(req.url);
   const claimId = url.searchParams.get("claim");
@@ -77,7 +99,7 @@ export default async (req: Request) => {
     // message masked real operational issues and gave misleading info to anyone
     // viewing the badge. Errors get a short cache so a transient RPC blip doesn't
     // freeze a wrong badge for the full 5-minute window.
-    const message = e instanceof Error ? e.message : String(e);
+    const message = extractRevertReason(e) ?? (e instanceof Error ? e.message : String(e));
     const errorHeaders = { ...headers, "cache-control": "public, max-age=30" };
     if (message.includes("unknown claim")) {
       return new Response(errorBadge("claim not found"), { headers: errorHeaders, status: 404 });

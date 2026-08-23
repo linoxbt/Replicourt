@@ -134,6 +134,16 @@ export function PostClaim() {
             </div>
           </div>
 
+          <p
+            className="border-l-2 px-2.5 py-2 text-xs"
+            style={{ borderLeftColor: "var(--color-attention-fg)", background: "var(--color-attention-subtle)", color: "var(--color-fg-default)" }}
+          >
+            This stake cannot be withdrawn once posted. If your claim is never
+            challenged, or wins every challenge against it, the stake stays
+            locked as the claim's backing pool — there is no mechanism to get
+            it back.
+          </p>
+
           <div>
             <label className={labelClass}>Study design</label>
             <input

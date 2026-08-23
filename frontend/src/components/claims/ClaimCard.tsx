@@ -19,15 +19,11 @@ export function ClaimCard({
   disableLink?: boolean;
 }) {
   const status = statusMeta[claim.status];
-  const Wrapper = disableLink ? "div" : Link;
-  const wrapperProps = disableLink ? {} : { to: `/claims/${claim.id}` };
+  const className = "block border p-4 transition-colors hover:border-[var(--color-accent-muted)]";
+  const style = { borderColor: "var(--color-border-default)", background: "var(--color-canvas)" };
 
-  return (
-    <Wrapper
-      {...(wrapperProps as any)}
-      className="block border p-4 transition-colors hover:border-[var(--color-accent-muted)]"
-      style={{ borderColor: "var(--color-border-default)", background: "var(--color-canvas)" }}
-    >
+  const content = (
+    <>
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-medium tracking-wide uppercase" style={{ color: "var(--color-accent-fg)" }}>
           {claim.category || "uncategorized"}
@@ -69,6 +65,22 @@ export function ClaimCard({
           </span>
         </div>
       </div>
-    </Wrapper>
+    </>
+  );
+
+  // Two distinct branches instead of a polymorphic `as any`-cast wrapper —
+  // Link and div take incompatible prop shapes, and keeping both properly
+  // typed here means a future prop change is actually caught by tsc.
+  if (disableLink) {
+    return (
+      <div className={className} style={style}>
+        {content}
+      </div>
+    );
+  }
+  return (
+    <Link to={`/claims/${claim.id}`} className={className} style={style}>
+      {content}
+    </Link>
   );
 }

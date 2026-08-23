@@ -645,10 +645,13 @@ genlayer up
 GL_CHAIN=localnet npx tsx deploy/deployScript.ts
 ```
 
-Either way, `deployScript.ts` writes the resulting address into
-`frontend/.env.local` as `VITE_CONTRACT_ADDRESS` automatically for
-localnet/studionet (testnet Asimov's address is printed, not auto-written —
-see [Explicitly deferred](#explicitly-deferred-out-of-scope-for-this-hackathon-build)).
+Either way, `deployScript.ts` writes the resulting address directly into
+`frontend/src/lib/contractAddresses.ts` — the actual module the running app
+imports — for whichever chain already has an entry there (currently
+studionet and testnet Asimov, both auto-written with no manual step).
+localnet/testnet Bradbury deploys have nowhere in the frontend's network
+switcher to be wired into, so those addresses are only printed to the
+console.
 
 ## Tech stack
 
@@ -673,14 +676,24 @@ see [Explicitly deferred](#explicitly-deferred-out-of-scope-for-this-hackathon-b
   submitted from the same browser, since there's no server-side transaction
   index; a real keeper (scheduled function + a DB of pending tx ids) is future
   work.
-- The **registry, leaderboard, and notifications all use an N+1 read
-  pattern** (one `get_challenges_for_claim` call per claim) — fine at
+- The **registry, leaderboard, dashboard, and notifications all use an N+1
+  read pattern** (one `get_challenges_for_claim` call per claim) — fine at
   hackathon scale, but the contract doesn't expose a batched or wallet-indexed
   view, so this wouldn't scale to a registry with thousands of claims without
   either a new view method or an off-chain indexer.
 - Cross-contract composition — single contract only.
 - Formal economic modeling of the 80/20 slash ratio — it's a documented,
   tunable constant, not a derived model.
+- **No withdrawal mechanism for `claim.stake`, under any circumstance.**
+  Posting a claim is a permanent, one-way stake commitment: `_settle()`'s
+  claim-wins branch pays the poster only the 80% bonus (not `claim.stake`
+  itself), the challenger-wins branch reduces `claim.stake` but never returns
+  any of it to the poster, and `escalate()`'s corrective-settlement paths
+  (see "Settlement consistency" above) never touch it either. A poster could
+  win every challenge against a claim forever and never recover the GEN they
+  originally staked. This is disclosed directly in the Post Claim form (see
+  `PostClaim.tsx`) rather than hidden — a real withdrawal mechanism (e.g.
+  gated to `round_count == 0`) is future work, not implemented here.
 
 ## License
 
